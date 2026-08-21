@@ -1,0 +1,17 @@
+{
+  "name": "midnight",
+  "panelBackground": "#000000",
+  "tileBackground": "#141519",
+  "tileHover": "#1c1e24",
+  "textPrimary": "#f5f6f8",
+  "textSecondary": "#a4abb8",
+  "textMuted": "#6a7280",
+  "accent": "#0a84ff",
+  "success": "#30d158",
+  "warning": "#ff9f0a",
+  "error": "#ff453a",
+  "border": "#26282f",
+  "shadow": "#000000CC",
+  "cornerRadius": 14,
+  "borderWidth": 1
+}

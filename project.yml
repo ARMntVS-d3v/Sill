@@ -1,0 +1,75 @@
+name: Sill
+options:
+  bundleIdPrefix: app.sill
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: false
+targets:
+  # This library reads Now Playing and is loaded not by us but by /usr/bin/perl: as of
+  # macOS 15.4 the system daemon only answers com.apple.* processes. Hence link: false —
+  # it's useless inside Sill, since it specifically needs someone else's entitlement
+  NowPlayingHelper:
+    type: library.dynamic
+    platform: macOS
+    sources: [Helpers/NowPlaying]
+    settings:
+      base:
+        EXECUTABLE_PREFIX: ""
+        PRODUCT_NAME: nowplaying
+        SKIP_INSTALL: true
+
+  Sill:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Core
+      - Shell
+      - Widgets
+      - path: Resources/Themes
+        buildPhase: resources
+        type: folder
+      # String Catalog: English keys in code, Russian translations here.
+      # Xcode compiles it into en/ru .lproj at build time
+      - path: Resources/Localizable.xcstrings
+        buildPhase: resources
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+    dependencies:
+      # Build-order dependency only: can't link it (the constructor would run inside
+      # Sill, where it has no access anyway), and xcodegen can't embed with link: false —
+      # so we copy it ourselves in the script below
+      - target: NowPlayingHelper
+        embed: false
+        link: false
+    postBuildScripts:
+      - name: Embed Now Playing helper
+        script: |
+          dest="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+          mkdir -p "$dest"
+          cp -f "$BUILT_PRODUCTS_DIR/nowplaying.dylib" "$dest/nowplaying.dylib"
+          # Sign with the same identity as the app itself: mixed signatures break
+          # verification. The hash variable, not the name: for ad-hoc signing the
+          # name expands to "Sign to Run Locally", which codesign rejects
+          codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$dest/nowplaying.dylib"
+    info:
+      path: App/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        CFBundleDisplayName: Sill
+        CFBundleIconFile: AppIcon
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en, ru]
+        NSCalendarsFullAccessUsageDescription: Sill shows today's events in the calendar widget.
+        NSRemindersFullAccessUsageDescription: Sill shows and checks off reminders in the widget.
+        NSAppleEventsUsageDescription: Sill reads your tasks from Things to show them in the widget.
+        NSHumanReadableCopyright: ""

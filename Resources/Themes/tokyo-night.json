@@ -1,0 +1,17 @@
+{
+  "name": "tokyo-night",
+  "panelBackground": "#1a1b26F2",
+  "tileBackground": "#1f2335",
+  "tileHover": "#292e42",
+  "textPrimary": "#c0caf5",
+  "textSecondary": "#a9b1d6",
+  "textMuted": "#565f89",
+  "accent": "#7aa2f7",
+  "success": "#9ece6a",
+  "warning": "#e0af68",
+  "error": "#f7768e",
+  "border": "#3b4261",
+  "shadow": "#000000AA",
+  "cornerRadius": 12,
+  "borderWidth": 1
+}

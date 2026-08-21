@@ -1,0 +1,17 @@
+{
+  "name": "black",
+  "panelBackground": "#000000",
+  "tileBackground": "#161618",
+  "tileHover": "#242426",
+  "textPrimary": "#f2f2f7",
+  "textSecondary": "#b8b8bd",
+  "textMuted": "#6e6e73",
+  "accent": "#0a84ff",
+  "success": "#32d74b",
+  "warning": "#ffd60a",
+  "error": "#ff453a",
+  "border": "#1f1f21",
+  "shadow": "#000000CC",
+  "cornerRadius": 12,
+  "borderWidth": 1
+}

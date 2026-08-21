@@ -1,0 +1,17 @@
+{
+  "name": "phosphor",
+  "panelBackground": "#000000",
+  "tileBackground": "#0e110e",
+  "tileHover": "#171b17",
+  "textPrimary": "#ddffdc",
+  "textSecondary": "#8cab87",
+  "textMuted": "#677d64",
+  "accent": "#7fee64",
+  "success": "#7fee64",
+  "warning": "#d4b45a",
+  "error": "#d0605a",
+  "border": "#1f2a33",
+  "shadow": "#000000CC",
+  "cornerRadius": 8,
+  "borderWidth": 1
+}

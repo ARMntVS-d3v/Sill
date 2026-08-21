@@ -63,7 +63,7 @@ targets:
       path: App/Info.plist
       properties:
         LSUIElement: true
-        CFBundleShortVersionString: "1.0"
+        CFBundleShortVersionString: "0.1"
         CFBundleVersion: "1"
         CFBundleDisplayName: Sill
         CFBundleIconFile: AppIcon

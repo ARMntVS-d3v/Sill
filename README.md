@@ -53,6 +53,15 @@ make run
 
 A locally built app launches without any Gatekeeper questions.
 
+## More
+
+| | |
+|:--:|:--:|
+| ![File shelf](docs/assets/more-shelf.gif) | ![Clipboard history](docs/assets/more-clipboard.gif) |
+| **File shelf** — drag a file onto the notch, it lands on the shelf | **Clipboard history** — a whole board with search and cards, on a global hotkey |
+| ![Edit mode](docs/assets/more-edit.gif) | ![Themes](docs/assets/more-themes.gif) |
+| **Edit mode** — drag, resize, swap, undo | **Themes** — JSON tokens with hot-reload |
+
 ## Write your own widget
 
 One file in `Widgets/`, one line in the registry:

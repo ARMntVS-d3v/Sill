@@ -89,7 +89,8 @@ struct TileView: View {
             if editing {
                 jiggleAngle = -jiggleAmplitude
                 withAnimation(
-                    .easeInOut(duration: Motion.jiggle).repeatForever(autoreverses: true)
+                    .easeInOut(duration: Motion.jiggle * Motion.filmSlowdown)
+                        .repeatForever(autoreverses: true)
                         .delay(jigglePhase)
                 ) {
                     jiggleAngle = jiggleAmplitude

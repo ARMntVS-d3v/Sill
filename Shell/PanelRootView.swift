@@ -77,7 +77,7 @@ struct PanelRootView: View {
         let collapsedOffset = slide ? -PanelMetrics.island.height : 0
         let slow = Motion.filmSlowdown
         let move: Animation = slide
-            ? .spring(response: Motion.panelSlide, dampingFraction: 0.9)
+            ? .spring(response: Motion.panelSlide * slow, dampingFraction: 0.9)
             : .easeOut(duration: Motion.panelNotch * slow)
         // Content fades out later than the shape animates: it leaves first, then disappears
         let fade: Animation = slide

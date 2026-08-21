@@ -227,7 +227,16 @@ final class PanelController: NSObject {
         signal(SIGXCPU, SIG_IGN)
         let openFilmSource = DispatchSource.makeSignalSource(signal: SIGXCPU, queue: .main)
         openFilmSource.setEventHandler {
-            MainActor.assumeIsolated { self.filmOpening() }
+            MainActor.assumeIsolated {
+                // Scene selector for the README GIFs: /tmp/sill_scene names the
+                // scene, no file means the plain panel-opening film
+                switch self.filmSceneName() {
+                case "clipboard": self.filmClipboardScene()
+                case "edit": self.filmEditScene()
+                case "themes": self.filmThemesScene()
+                default: self.filmOpening()
+                }
+            }
         }
         openFilmSource.resume()
         self.openFilmSource = openFilmSource
@@ -238,7 +247,13 @@ final class PanelController: NSObject {
         signal(SIGXFSZ, SIG_IGN)
         let islandFilmSource = DispatchSource.makeSignalSource(signal: SIGXFSZ, queue: .main)
         islandFilmSource.setEventHandler {
-            MainActor.assumeIsolated { self.filmIslandTrack() }
+            MainActor.assumeIsolated {
+                if self.filmSceneName() == "shelf" {
+                    self.filmShelfScene()
+                } else {
+                    self.filmIslandTrack()
+                }
+            }
         }
         islandFilmSource.resume()
         self.islandFilmSource = islandFilmSource
@@ -464,6 +479,157 @@ final class PanelController: NSObject {
         }
         Motion.filmSlowdown = 1
         writeOpeningFilm()
+    }
+
+    // MARK: - README GIF scenes (selected via /tmp/sill_scene)
+
+    private func filmSceneName() -> String? {
+        (try? String(contentsOfFile: "/tmp/sill_scene", encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The showcase board for the public GIFs — found by content, never by
+    /// name: the personal boards must not end up in a published frame
+    private func selectShowcaseBoard() {
+        guard let board = appState.config.boards.first(where: { board in
+            board.tiles.contains { $0.widgetID == "calendar" }
+                && board.tiles.contains { $0.widgetID == "cpu" }
+        }) else { return }
+        appState.selectBoard(board.id)
+    }
+
+    /// Generic take: capture window frames until `until`, then write and
+    /// run the completion (restore state the scene changed)
+    private var filmDone: ((PanelController) -> Void)?
+
+    private func filmCapture(start: TimeInterval, until: TimeInterval) {
+        let elapsed = CACurrentMediaTime() - start
+        if elapsed < until {
+            if let view = panel.contentView,
+               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                openFilmFrames.append((elapsed, rep))
+            }
+            after(0.02) { $0.filmCapture(start: start, until: until) }
+            return
+        }
+        Motion.filmSlowdown = 1
+        writeOpeningFilm()
+        filmDone?(self)
+        filmDone = nil
+    }
+
+    /// Clipboard board slides down from the top edge — the keyboard-invocation motion
+    private func filmClipboardScene() {
+        if phase == .shown { hidePanel() }
+        after(1.0) { c in
+            Motion.filmSlowdown = 4
+            c.appState.showClipboardBoard()
+            c.appState.appearing = .slide
+            c.showPanel()
+            c.openFilmFrames.removeAll()
+            c.filmCapture(start: CACurrentMediaTime(), until: 2.8)
+        }
+    }
+
+    /// Edit mode: a calm board, then the iOS-style jiggle with dashed cells
+    private func filmEditScene() {
+        appState.pinned = true
+        selectShowcaseBoard()
+        if phase != .shown {
+            appState.appearing = .notch
+            showPanel()
+        }
+        after(1.5) { c in
+            Motion.filmSlowdown = 4
+            c.openFilmFrames.removeAll()
+            c.filmCapture(start: CACurrentMediaTime(), until: 9.0)
+            c.after(1.2) { $0.appState.toggleEditing(true) }
+            c.filmDone = { done in
+                done.appState.toggleEditing(false)
+            }
+        }
+    }
+
+    /// Theme carousel: one settled frame per theme, crossfaded at assembly
+    private func filmThemesScene() {
+        appState.pinned = true
+        selectShowcaseBoard()
+        if phase != .shown {
+            appState.appearing = .notch
+            showPanel()
+        }
+        after(1.2) { c in
+            c.openFilmFrames.removeAll()
+            c.filmThemeStep(0, themes: ["midnight", "tokyo-night", "phosphor"])
+        }
+    }
+
+    private func filmThemeStep(_ index: Int, themes: [String]) {
+        guard index < themes.count else {
+            appState.themeEngine.select(name: "midnight")
+            writeOpeningFilm()
+            return
+        }
+        appState.themeEngine.select(name: themes[index])
+        after(0.8) { c in
+            if let view = c.panel.contentView,
+               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                c.openFilmFrames.append((TimeInterval(index), rep))
+            }
+            c.filmThemeStep(index + 1, themes: themes)
+        }
+    }
+
+    /// Shelf at the notch: the capsule invites the file, confirms, tucks away.
+    /// Driven with copies of the real ShelfActivity states so the timings can
+    /// be slowed for filming
+    private func filmShelfScene() {
+        if phase == .shown { hidePanel() }
+        island?.beginFilm()
+        LiveActivityCenter.shared.clear(MusicActivity.id)
+        after(1.0) { c in
+            Motion.filmSlowdown = 4
+            let blue = Color(red: 0.04, green: 0.52, blue: 1)
+            var invite = LiveActivity(
+                id: "film", icon: "tray.and.arrow.down.fill", value: "Drop file here",
+                tint: blue)
+            invite.expanded = true
+            invite.priority = 95
+            var confirm = LiveActivity(
+                id: "film", icon: "checkmark.circle.fill", value: "File on shelf",
+                tint: blue)
+            confirm.expanded = true
+            confirm.priority = 95
+            LiveActivityCenter.shared.update(invite)
+            c.after(3.4) { _ in LiveActivityCenter.shared.update(confirm) }
+            c.after(6.2) { _ in LiveActivityCenter.shared.clear("film") }
+            c.islandFilmFrames.removeAll()
+            c.filmShelfFrame(start: CACurrentMediaTime())
+        }
+    }
+
+    private func filmShelfFrame(start: TimeInterval) {
+        let elapsed = CACurrentMediaTime() - start
+        if elapsed < 8.4 {
+            if let rep = island?.filmFrame() {
+                islandFilmFrames.append((elapsed, rep))
+            }
+            after(0.02) { $0.filmShelfFrame(start: start) }
+            return
+        }
+        Motion.filmSlowdown = 1
+        var manifest = ""
+        for (index, frame) in islandFilmFrames.enumerated() {
+            guard let data = frame.rep.representation(using: .png, properties: [:]) else { continue }
+            try? data.write(to: URL(fileURLWithPath: String(format: "/tmp/sill_isl_%03d.png", index)))
+            manifest += String(format: "%03d %.4f\n", index, frame.time)
+        }
+        try? manifest.write(toFile: "/tmp/sill_isl.txt", atomically: true, encoding: .utf8)
+        sillLog("[film] shelf frames: \(islandFilmFrames.count)")
+        islandFilmFrames.removeAll()
+        island?.endFilm()
     }
 
     /// Filmstrip of the capsule with the current track: morph out compact,

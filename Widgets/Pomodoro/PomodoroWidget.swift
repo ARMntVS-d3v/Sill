@@ -42,6 +42,9 @@ final class PomodoroWidget: Widget {
         var done: Int = 0
         /// Which day `done` counts — a new day starts the count over
         var day: Date = .distantPast
+        /// The finished phase has already been counted: the tile can sit on a
+        /// finished phase for an hour, and it still counts once
+        var counted = false
 
         func duration(of phase: Phase) -> TimeInterval { phase == .work ? work : rest }
 
@@ -59,14 +62,14 @@ final class PomodoroWidget: Widget {
         context.schedule(every: .seconds(1)) { [weak self] in
             guard let self, isRunning else { return }
             now = Date()
-            advance()
+            countFinish()
         }
     }
 
     func activate() async throws {
         applySettings()
         now = Date()
-        advance()
+        countFinish()
     }
 
     /// Lengths are shared by every pomodoro tile: they are set in Settings, and a
@@ -93,6 +96,11 @@ final class PomodoroWidget: Widget {
         return max(state.duration - elapsed, 0)
     }
 
+    /// The phase has run out and is waiting. The next one does NOT start by itself:
+    /// a break that began without you is not a break, and coming back to a machine
+    /// that has been "resting" for an hour tells you nothing
+    var finished: Bool { isRunning && value <= 0 }
+
     var progress: Double {
         guard state.duration > 0 else { return 0 }
         return min(max(1 - value / state.duration, 0), 1)
@@ -114,6 +122,11 @@ final class PomodoroWidget: Widget {
     // MARK: - controls
 
     func toggle() {
+        // The phase has rung and is waiting: play moves on to the next one
+        if finished {
+            begin(state.phase.other)
+            return
+        }
         if let startedAt = state.startedAt {
             state.accumulated += Date().timeIntervalSince(startedAt)
             state.startedAt = nil
@@ -126,18 +139,22 @@ final class PomodoroWidget: Widget {
     /// Skip to the next phase. Finishing work early still counts as a pomodoro —
     /// the count is for sessions worked, and the person decides when one is over
     func skip() {
-        complete(state.phase)
-        state.phase = state.phase.other
-        state.accumulated = 0
-        if state.startedAt != nil { state.startedAt = Date() }
-        persist()
+        if state.phase == .work, !state.counted { count() }
+        begin(state.phase.other)
     }
 
-    /// Back to the start of the work phase — the counter for the day stays
-    func reset() {
-        state.phase = .work
-        state.startedAt = nil
+    /// Start this phase over from the top, and keep it going. A button that only
+    /// clears the number leaves you looking at a stopped timer
+    func restart() {
+        begin(state.phase)
+    }
+
+    /// Begin a phase from zero, running
+    private func begin(_ phase: PomodoroWidget.Phase) {
+        state.phase = phase
+        state.startedAt = Date()
         state.accumulated = 0
+        state.counted = false
         persist()
     }
 
@@ -156,33 +173,22 @@ final class PomodoroWidget: Widget {
 
     // MARK: - the clock
 
-    /// The phase rolls over on its own, and several may pass while the panel is
-    /// closed — walking them is a loop, not a special case. Bounded by the number of
-    /// phases that actually fit in the elapsed time
-    private func advance() {
-        guard isRunning else { return }
-        var guardCount = 0
-        while value <= 0, guardCount < 500 {
-            guardCount += 1
-            let duration = state.duration
-            complete(state.phase)
-            state.phase = state.phase.other
-            // Chained from the previous phase's end, not from "now": the next phase
-            // started the moment this one ran out, even if nobody was watching
-            state.startedAt = (state.startedAt ?? Date()).addingTimeInterval(duration - state.accumulated)
-            state.accumulated = 0
-        }
-        if guardCount > 0 { persist() }
+    /// The work stretch that just ran out goes into the day's count — once, however
+    /// long the tile sits on the finished phase afterwards
+    private func countFinish() {
+        guard finished, !state.counted else { return }
+        state.counted = true
+        if state.phase == .work { count() }
+        persist()
     }
 
-    /// A finished work phase adds to today's count
-    private func complete(_ phase: Phase) {
-        guard phase == .work else { return }
+    private func count() {
         if !Calendar.current.isDateInToday(state.day) {
             state.day = Date()
             state.done = 0
         }
         state.done += 1
+        state.counted = true
     }
 
     private func persist() {

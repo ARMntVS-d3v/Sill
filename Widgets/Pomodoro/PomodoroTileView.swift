@@ -63,7 +63,8 @@ struct PomodoroTileView: View {
 
             HStack(spacing: TileControlMetrics.gap(.large)) {
                 PomodoroButton(
-                    icon: widget.isRunning ? "pause.fill" : "play.fill",
+                    // A finished phase waits for play: the next one doesn't start itself
+                    icon: widget.isRunning && !widget.finished ? "pause.fill" : "play.fill",
                     tint: accent, primary: true,
                     diameter: TileControlMetrics.primary(.large)
                 ) { widget.toggle() }
@@ -74,7 +75,7 @@ struct PomodoroTileView: View {
                 PomodoroButton(
                     icon: "arrow.counterclockwise", tint: accent, primary: false,
                     diameter: TileControlMetrics.secondary(.large)
-                ) { widget.reset() }
+                ) { widget.restart() }
                 Spacer(minLength: 0)
                 // The day's history: a filled circle per finished work stretch
                 SessionDots(done: widget.doneToday, tint: accent)
@@ -122,7 +123,7 @@ struct PomodoroTileView: View {
 
             HStack(spacing: TileControlMetrics.gap(size)) {
                 PomodoroButton(
-                    icon: widget.isRunning ? "pause.fill" : "play.fill",
+                    icon: widget.isRunning && !widget.finished ? "pause.fill" : "play.fill",
                     tint: accent, primary: true,
                     diameter: TileControlMetrics.primary(size)
                 ) { widget.toggle() }
@@ -144,6 +145,11 @@ struct PomodoroTileView: View {
     }
 
     private var subtitle: String {
+        if widget.finished {
+            return widget.phase == .work
+                ? String(localized: "time for a break")
+                : String(localized: "break is over")
+        }
         guard let endsAt = widget.endsAt else {
             return widget.phase == .work
                 ? String(localized: "tap play to start")

@@ -40,19 +40,20 @@ enum PomodoroActivity {
         }
 
         // A phase ends while the panel is closed and the widget is asleep — so the
-        // sound belongs here. Announced per tile and per phase index: without the
-        // index, a phase that rolled over during a single tick would go unheard
-        for state in running {
-            let previous = announced[state.tileID]
-            announced[state.tileID] = state.index
-            guard let previous, previous != state.index else { continue }
-            sillLog("[pomodoro] phase → \(state.phase.rawValue)")
+        // sound belongs here. Announced per tile by the phase's own start moment:
+        // an index into a rolling sequence shifted under us the moment the widget
+        // woke up and rewrote the state, and the same phase end rang twice
+        for state in running where state.left <= 0 {
+            guard announced[state.tileID] != state.phaseStart else { continue }
+            announced[state.tileID] = state.phaseStart
+            sillLog("[pomodoro] \(state.phase.rawValue) ended")
             if let sound = NSSound(named: "Glass") {
                 sound.play()
             } else {
                 NSSound.beep()
             }
-            notify(phase: state.phase)
+            // Say what comes next, not what just ended
+            notify(phase: state.phase.other)
         }
 
         // Of several pomodoros, the capsule shows the one closest to switching
@@ -61,31 +62,32 @@ enum PomodoroActivity {
             LiveActivityCenter.shared.clear(id)
             return
         }
+        // A phase that has run out waits for a decision — the next one doesn't start
+        // by itself, so the capsule rings a bell instead of counting on
+        let done = soonest.left <= 0
         LiveActivityCenter.shared.update(
             LiveActivity(
                 id: id,
-                icon: soonest.phase == .work ? "leaf.fill" : "cup.and.saucer.fill",
+                icon: done
+                    ? "bell.fill"
+                    : (soonest.phase == .work ? "leaf.fill" : "cup.and.saucer.fill"),
                 value: PomodoroWidget.text(soonest.left),
                 // Work and break are told apart by color before the icon is read:
                 // green while working, blue while resting
                 tint: soonest.phase == .work ? .green : .cyan,
-                priority: 10))
+                // A phase waiting to be picked up outranks one still running
+                priority: done ? 20 : 10))
     }
 
-    /// Which phase each tile is in and how much of it is left. Nothing is written
-    /// back: the same walk the widget does, so both agree without a shared write
+    /// What each tile shows and how much of it is left. Nothing is written back: the
+    /// same arithmetic the widget does, so both agree without a shared write
     private static func current(tileID: String, state: PomodoroWidget.State) -> Current? {
         guard let startedAt = state.startedAt else { return nil }
-        var phase = state.phase
-        var left = state.duration(of: phase) - state.accumulated
-            - Date().timeIntervalSince(startedAt)
-        var index = 0
-        while left <= 0, index < 500 {
-            index += 1
-            phase = phase.other
-            left += state.duration(of: phase)
-        }
-        return Current(tileID: tileID, phase: phase, left: max(left, 0), index: index)
+        let left = state.duration - state.accumulated - Date().timeIntervalSince(startedAt)
+        return Current(
+            tileID: tileID, phase: state.phase, left: max(left, 0),
+            // The moment this phase began — stable no matter who rewrites the state
+            phaseStart: startedAt.addingTimeInterval(-state.accumulated))
     }
 
     /// Launch sweep: state for a tile that is on no board is a ghost from a quit
@@ -107,11 +109,13 @@ enum PomodoroActivity {
     /// that long instead of polling (see CountingLabel)
     static func nextChange() -> TimeInterval? {
         let running = states().compactMap { current(tileID: $0.key, state: $0.value) }
-        guard let soonest = running.min(by: { $0.left < $1.left }) else { return nil }
+        guard let soonest = running.min(by: { $0.left < $1.left }), soonest.left > 0
+        else { return nil }
         return CountingLabel.nextChange(value: soonest.left, countingDown: true)
     }
 
-    private static var announced: [String: Int] = [:]
+    /// Which phase end each tile has already rung for, by the phase's start moment
+    private static var announced: [String: Date] = [:]
 
     private static func notify(phase: PomodoroWidget.Phase) {
         let center = UNUserNotificationCenter.current()
@@ -134,7 +138,7 @@ enum PomodoroActivity {
         let tileID: String
         let phase: PomodoroWidget.Phase
         let left: TimeInterval
-        /// How many phases have rolled over since the state was written
-        let index: Int
+        /// When this phase began — the ring is announced by it
+        let phaseStart: Date
     }
 }

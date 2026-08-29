@@ -69,7 +69,7 @@ struct TimerTileView: View {
                     icon: "arrow.counterclockwise", primary: false,
                     diameter: TileControlMetrics.secondary(.large)
                 ) {
-                    widget.reset()
+                    widget.restart()
                 }
                 Spacer(minLength: 0)
                 // Presets get their own tight spacing: with the shared button gap
@@ -124,7 +124,7 @@ struct TimerTileView: View {
                     icon: "arrow.counterclockwise", primary: false,
                     diameter: TileControlMetrics.secondary(size)
                 ) {
-                    widget.reset()
+                    widget.restart()
                 }
 
                 Spacer(minLength: 0)

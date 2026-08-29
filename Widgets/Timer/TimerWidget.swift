@@ -83,7 +83,18 @@ final class TimerWidget: Widget {
         persist()
     }
 
-    func reset() {
+    /// Start the same interval over, and keep it going. A button that only clears
+    /// the number leaves you looking at a stopped timer — restarting is what people
+    /// actually press it for
+    func restart() {
+        state.accumulated = 0
+        finished = false
+        state.startedAt = Date()
+        persist()
+    }
+
+    /// Clear and stop — used when the mode changes, where "running" makes no sense
+    private func reset() {
         state.startedAt = nil
         state.accumulated = 0
         finished = false

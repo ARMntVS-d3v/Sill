@@ -3463,6 +3463,16 @@
         }
       }
     },
+    "break is over": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "перерыв закончился"
+          }
+        }
+      }
+    },
     "capacity": {
       "localizations": {
         "ru": {
@@ -4149,6 +4159,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "тема"
+          }
+        }
+      }
+    },
+    "time for a break": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "пора отдохнуть"
           }
         }
       }

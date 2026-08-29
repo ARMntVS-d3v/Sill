@@ -25,11 +25,25 @@ enum MediaKeys {
 
     static var isAvailable: Bool { AXIsProcessTrusted() }
 
+    /// Whether the system prompt has already been shown once. The second time it
+    /// doesn't appear at all — the app is in the Accessibility list by then, just
+    /// unchecked — and the only way left is System Settings. Same rule as the
+    /// calendar placeholder: don't send anyone to a list they aren't in yet
+    private static let askedKey = "mediakeys.asked"
+    static var didAsk: Bool { UserDefaults.standard.bool(forKey: askedKey) }
+
     /// Show the system access prompt — from a settings button, not at launch:
     /// an unsolicited "Accessibility" dialog is scary
     static func requestAccess() {
+        UserDefaults.standard.set(true, forKey: askedKey)
         let options = ["AXTrustedCheckOptionPrompt": true]
         _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+
+    /// System Settings → Privacy & Security → Accessibility
+    static func openSettings() {
+        guard let url = PermissionKind.accessibility.settingsURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     static func start() {

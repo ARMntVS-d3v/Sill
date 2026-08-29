@@ -50,13 +50,25 @@ Icons in the panel wings — `TileFont.row` (13); that is not a tile.
 | `sideColumn` | 104 | width of the left column in the rectangle |
 
 Deliberate exceptions to `rowGap`: the dense number table in system metrics
-(5–6 — at step 8 the bottom row runs off the tile edge) and weather
-(the hourly strip and days have their own layout; a time slipping under the notch
-was already caught as a bug).
+(`meterGap` 7, and `meterGapDense` 4 when even that doesn't fit — five metrics with
+bars have to fit a 152-pt square) and weather (the hourly strip and days have their
+own layout; a time slipping under the notch was already caught as a bug).
+
+How many rows fit is decided by the layout, not by a number picked by hand: where a
+list can outgrow the tile, wrap the variants in `ViewThatFits(in: .vertical)` — most
+complete first. A fixed row count clips the last row as soon as the locale or the
+font changes.
 
 The radius of the tile itself, of cards, and of rows is `theme.cornerRadius`, not a number:
 it changes with the theme and with a slider in settings. Your own number here = a tile
 that ignores the theme.
+
+## countdown dial — `TileDial` (Core/TileDial.swift)
+
+Sixty ticks around the rim, a thin arc of what's left over them, the number in the
+middle. Used by the timer and the pomodoro; anything else that counts down to zero
+takes the same one. Its own dial in a widget = a review error: two tiles side by side
+drawing the same thing differently read as two programs.
 
 ## round buttons inside a tile — only `TileControlMetrics`
 
@@ -82,6 +94,12 @@ and the timer: two adjacent tiles with buttons of 30 and 32 read as two differen
 | wings height | 38 |
 | tile sizes | S 1×1, M 2×1, L 2×2 |
 
+Edit-mode chrome is the one thing allowed outside the cell: the remove button sits
+flush with the tile's top edge and its hover ring and the jiggle reach above it, so
+the board strip is clipped by a rectangle extended upward by
+`TileChromeMetrics.topOverhang` (8). Sideways and below the clip stays tight — that is
+what keeps the neighbouring board out of sight while paging.
+
 A tile cannot outgrow its cell: the shell clamps content into a hard
 `frame` and clips the excess. If content does not fit, that is a layout error in the widget,
 not a reason for the tile to grow. Verify with a snapshot: `kill -USR2` and measure the card edges.
@@ -98,16 +116,26 @@ The icon's visible size and its hit zone are different values: draw small, catch
 |---|---|---|
 | icon in a panel wing (edit, settings, pin, quit) | 13 | 26 × 26 |
 | board dot | 7 | 22 × 22, center-to-center step 17 (zones overlap) |
-| board dot in edit mode | 9 | 22 × 22, step 22 — zones do NOT overlap |
+| board dot running off the row edge | 5, then 3 | 22 × 22 — the slot stays full size |
 
-In edit mode the dots are spread to full zones and enlarged: they are targeted with
-right-click and dragging, and overlapping zones opened the neighboring dot's menu.
-Deleting a board — only via the context menu; a cross on the dot and dragging the dot
-downward were rejected: the cross got confused with dragging, the drag-away is not guessable.
+A dot only switches boards, in every mode. Edit mode adds one thing to the row: the
+"+" that makes a new board — that is where boards get created. Renaming, reordering
+and deleting live in Settings → Boards: in the panel they were invisible, and on a Mac
+with a menu bar manager (Bartender, Thaw) the right-click that opened them never
+arrived. Deleting stays out of the panel on purpose — it can't be undone by eye, and
+it has no business a pixel away from a button used constantly. The clipboard board is
+not deleted at all: it comes and goes with its setting.
+
+The row never grows past the width the wing gives it. When there are more boards than
+fit, it holds a window of dots and shrinks the ones running off the edge — 7 → 5 → 3,
+the iOS page indicator. The window follows the active dot (the dragged one in edit
+mode). A row that kept growing pushed the wordmark out and slid the far dots under the
+notch, where the click trap window ate them.
 | board "+" | 11 | 22 × 22 |
 | minus on a tile | circle 18 | 26 × 26 |
 | resize corner | circle 20 | 28 × 28 |
 | button in a list row (pin, delete) | 9 | 20 × 20 |
+| clear button inside an input field | 13 | 20 × 20 |
 
 Hover highlighting is mandatory wherever the zone is larger than the icon: without it,
 it is unclear where exactly to aim. Highlight shape — corner radius 7 for rectangular zones,
@@ -150,7 +178,10 @@ elements respond to one gesture out of step.
 | capsule at the notch | `Motion.island` | spring 0.34 / bounce 0.14 |
 | capsule content | `Motion.islandContent` | 0.12, easeOut |
 | content lags the capsule expansion | `Motion.islandContentDelay` | 0.08 |
+| compact row returns after the expanded row fades | `Motion.islandRowReturnDelay` | delay 0.14 |
+| content swap inside the message capsule | `Motion.islandSwap` | 0.16 |
 | board strip | `Motion.boardStrip` | spring 0.34 / bounce 0 |
+| transient feedback signal (shelf overflow border; equals the capsule confirmation hold) | `Motion.signalHold` | 1.6 |
 
 | what | duration |
 |---|---|
@@ -165,9 +196,7 @@ period `Motion.jiggle`, each element with its own phase (a random delay up to on
 period — elements rocking in sync would read as a mechanism). Amplitude falls with size:
 tile S ±1.2°, M ±0.8°, L ±0.6° — including the neighbor in the strip: edit mode
 survives swiping, and a calm incoming page would read as leaving
-the mode. A board dot does not rotate; it gently
-bobs vertically: ±1 pt with period `Motion.dotBob` 0.5 — four times
-slower than the tiles; at their tempo a small circle read as vibration.
+the mode. Board dots don't move at all — there is nothing to drag them to.
 Start and stop — only with an explicit `withAnimation`: a declarative repeatForever
 does not stop when state is reset without animations.
 
@@ -187,6 +216,12 @@ fades over `islandContent` — faster than the capsule moves: a narrow capsule g
 clipped at the notch edges anyway. Width is set hard (`frame(width:)`), not as a minimum:
 via `minWidth` the capsule cannot be narrowed, and no retraction happens at all.
 
+A capsule that counts seconds is not polled — the island sleeps until the moment its
+number changes (`CountingLabel.nextChange`). The label rounds, so it flips on the
+value's own phase, half a second off the wall clock: polling twice a second showed the
+digits late and in uneven steps. One wake per visible change, and the expensive source
+sweep stays on its own slow cadence.
+
 Everything that moves while the panel is closed is drawn at an explicit frame rate and via `Canvas`.
 `TimelineView(.animation)` means the display's refresh rate — on ProMotion that is 120 redraws
 per second for four equalizer bars, four times more expensive on the CPU.
@@ -202,7 +237,12 @@ empty state has a meaningful action (pick a city, grant access, retry the reques
 the button goes under the text — the tile must remain itself, not turn into a stub.
 
 Exception — an input field: the hint is drawn under the field itself, same size and color
-(note, "Ask", clipboard search), otherwise it stands away from the cursor.
+(note, "Ask", clipboard search), otherwise it stands away from the cursor. The shared
+component is `TileTextField` (Core/TileParts.swift) — a `TextField`, single- or
+multi-line, plus an optional circled cross for clearing at the field's trailing edge
+(hit zone `TileControlMetrics.fieldClearHit` 20). `TextEditor` is only for a field
+where Return has to break the line (the note): it carries its own 5-pt line inset and
+draws the caret a line above the text.
 
 One vocabulary for the whole app: "Loading…", "Nothing found", "No events",
 "Nothing playing", "All done", "Clipboard is empty", "No battery". Your own phrasing

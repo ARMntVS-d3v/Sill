@@ -6,6 +6,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let shared = AppDelegate()
 
     static func main() {
+        // A write into a pipe whose reader died (music helper) raises SIGPIPE,
+        // which kills the process before `write` even returns — try? can't catch it
+        signal(SIGPIPE, SIG_IGN)
         setvbuf(stdout, nil, _IOLBF, 0)  // widget logs show up immediately, even when output goes to a file
         let app = NSApplication.shared
         app.delegate = shared
@@ -61,6 +64,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Two instances would write one config, poll the clipboard twice, and
+        // fight over the notch trap. The earlier instance wins; this one leaves
+        let others = NSRunningApplication.runningApplications(
+            withBundleIdentifier: Bundle.main.bundleIdentifier ?? ""
+        ).filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        if !others.isEmpty {
+            sillLog("[app] another instance is already running (pid \(others[0].processIdentifier)) — quitting")
+            NSApp.terminate(nil)
+            return
+        }
         NSApp.setActivationPolicy(.accessory)
         panelController = PanelController()
         installMenu()

@@ -106,13 +106,20 @@ final class TranslateWidget: Widget {
             ?? code.uppercased()
     }
 
+    /// Picking the language the other side already holds swaps the two: translating
+    /// RU → RU is not a state anyone wants, and refusing the choice silently would
+    /// look broken
     func setSource(_ code: String) {
+        guard code != pair.source else { return }
+        if code == pair.target { pair.target = pair.source }
         pair.source = code
         persistPair()
         retranslate()
     }
 
     func setTarget(_ code: String) {
+        guard code != pair.target else { return }
+        if code == pair.source { pair.source = pair.target }
         pair.target = code
         persistPair()
         retranslate()
@@ -137,8 +144,20 @@ final class TranslateWidget: Widget {
     /// What to translate on the session's next pass
     @ObservationIgnored private(set) var pendingText = ""
 
+    /// The pair has no language pack on disk. The tile turns this into a button:
+    /// leaving "No RU → EN pack" as plain text is a dead end
+    private(set) var packMissing = false
+    /// A download was asked for: the session is needed even with nothing to translate
+    private var wantsDownload = false
+
+    /// Show the system's language-download window. Only ever from a press — the rule
+    /// is that the system window never pops up on its own while someone is typing
+    func downloadPack() {
+        wantsDownload = true
+    }
+
     var configuration: TranslationSession.Configuration? {
-        guard !pendingText.isEmpty else { return nil }
+        guard !pendingText.isEmpty || wantsDownload else { return nil }
         // Both languages are always explicit. With `source: nil` the system
         // translator guesses on its own and, when unsure, pops up its own modal
         // over the panel asking which language to translate from — mid-typing
@@ -165,8 +184,11 @@ final class TranslateWidget: Widget {
         return status == .installed
     }
 
+    /// Translate this instant, without waiting out the debounce: Return in the field
+    func translateNow() { retranslate(immediate: true) }
+
     /// Text changed — ask the session to translate again
-    func retranslate() {
+    func retranslate(immediate: Bool = false) {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         generation += 1
         guard !text.isEmpty else {
@@ -179,10 +201,11 @@ final class TranslateWidget: Widget {
         }
         isTranslating = true
         failure = nil
+        packMissing = false
         let mark = generation
         let key = "\(pair.source)-\(pair.target)"
         if let ready = packCache[key] {
-            applyReadiness(ready, text: text, mark: mark)
+            applyReadiness(ready, text: text, mark: mark, immediate: immediate)
             return
         }
         let pair = pair
@@ -190,20 +213,25 @@ final class TranslateWidget: Widget {
             let ready = await Self.installed(pair.source, pair.target)
             guard let self, mark == generation else { return }
             packCache[key] = ready
-            applyReadiness(ready, text: text, mark: mark)
+            applyReadiness(ready, text: text, mark: mark, immediate: immediate)
         }
     }
 
     /// Pack is there — enable the session (that's the translation). Not there —
     /// leave the session alone entirely and fall back to the model
-    private func applyReadiness(_ ready: Bool, text: String, mark: Int) {
+    private func applyReadiness(_ ready: Bool, text: String, mark: Int, immediate: Bool) {
         guard mark == generation else { return }
         guard ready else {
             // No pack — never go to the session, or the system pops up its own
             // language-download window over the panel. Fall back to the model
             pendingText = ""
             context.log("pack \(pair.source)→\(pair.target) not installed")
-            translateByModel(text, mark: mark)
+            // Offer the download as soon as we know it's missing, not only when the
+            // model fails: the model path is a network round trip per phrase, while
+            // an installed pack translates locally and instantly. Without this the
+            // person never learned the fast path existed
+            packMissing = true
+            translateByModel(text, mark: mark, immediate: immediate)
             return
         }
         pendingText = text
@@ -214,19 +242,35 @@ final class TranslateWidget: Widget {
     /// cancelled — the answer waited in line behind all the stale ones
     @ObservationIgnored private var modelTask: Task<Void, Never>?
 
-    private func translateByModel(_ text: String, mark: Int) {
+    /// What the model has already translated: same phrase, same pair — same answer.
+    /// Retyping a word, switching tile sizes or reopening the panel used to buy a
+    /// fresh round trip every time
+    @ObservationIgnored private var modelCache: [String: String] = [:]
+
+    private func cacheKey(_ text: String) -> String { "\(pair.source)-\(pair.target)-\(text)" }
+
+    private func translateByModel(_ text: String, mark: Int, immediate: Bool = false) {
+        if let cached = modelCache[cacheKey(text)] {
+            isTranslating = false
+            apply(cached)
+            return
+        }
         modelTask?.cancel()
         modelTask = Task { [weak self] in
-            // Debounce: a model round-trip per keystroke is pure waste —
-            // wait for the typing to pause. The system path stays immediate:
-            // it's local and effectively free
-            try? await Task.sleep(for: .milliseconds(450))
+            // Debounce: a model round-trip per keystroke is pure waste — wait for
+            // the typing to pause. Short, because this path is already the slow one;
+            // Return translates without waiting at all. The system path has no
+            // debounce: it's local and effectively free
+            if !immediate {
+                try? await Task.sleep(for: .milliseconds(300))
+            }
             guard !Task.isCancelled else { return }
             await self?.translateWithModel(text, mark: mark)
             guard let self, mark == generation else { return }
             isTranslating = false
             if output.isEmpty {
                 failure = String(localized: "No \(pair.source.uppercased()) → \(pair.target.uppercased()) pack")
+                packMissing = true
             }
         }
     }
@@ -235,6 +279,19 @@ final class TranslateWidget: Widget {
     /// The session is handed out by SwiftUI: the system translator has no
     /// standalone object — it lives alongside the view
     func run(_ session: TranslationBox) async {
+        if wantsDownload {
+            wantsDownload = false
+            do {
+                try await Self.prepare(with: session)
+                // Ask the system again: the pack may be there now
+                packCache["\(pair.source)-\(pair.target)"] = nil
+                packMissing = false
+                retranslate()
+            } catch {
+                context.log("pack download failed: \(error)")
+            }
+            return
+        }
         let text = pendingText
         guard !text.isEmpty else { return }
         let mark = generation
@@ -249,6 +306,7 @@ final class TranslateWidget: Widget {
                 await translateWithModel(text, mark: mark)
                 if output.isEmpty || output == text {
                     failure = String(localized: "No \(pair.source.uppercased()) → \(pair.target.uppercased()) pack: system returned the text untranslated")
+                    packMissing = true
                 }
             } else {
                 apply(response.text)
@@ -267,6 +325,12 @@ final class TranslateWidget: Widget {
     /// won't let them cross back to the main actor, and the session can't live
     /// there either — its `translate` is a plain async method that runs on the
     /// shared executor
+
+    /// The system's own download window for the pair. Same isolation dance as
+    /// `translate`: the session can't cross back to the main actor
+    private nonisolated static func prepare(with box: TranslationBox) async throws {
+        try await box.session.prepareTranslation()
+    }
 
     private nonisolated static func translate(
         _ text: String, with box: TranslationBox
@@ -290,6 +354,7 @@ final class TranslateWidget: Widget {
             return
         }
         let target = Self.title(of: pair.target)
+        let started = Date()
         do {
             var collected = ""
             try await LLMClient.shared.ask(
@@ -304,7 +369,14 @@ final class TranslateWidget: Widget {
                 output = collected.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard mark == generation else { return }
-            apply(collected.trimmingCharacters(in: .whitespacesAndNewlines))
+            let answer = collected.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !answer.isEmpty {
+                // Bounded: a tile shouldn't grow a dictionary of everything ever typed
+                if modelCache.count > 40 { modelCache.removeAll() }
+                modelCache[cacheKey(text)] = answer
+            }
+            context.log("model answered in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            apply(answer)
         } catch is CancellationError {
         } catch {
             guard mark == generation else { return }

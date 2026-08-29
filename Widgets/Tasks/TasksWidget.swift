@@ -37,7 +37,16 @@ class TasksWidget<Source: TaskSource>: Widget {
     var appName: String { Source.appName }
 
     func refresh() async throws {
+        // Mid-undo-window the list isn't replaced: the background tick used to
+        // make the struck-through row vanish before its six seconds were up
+        guard justCompleted.isEmpty else { return }
+        // Not ready (Things isn't running) — keep showing the cached list:
+        // reading through AppleScript would silently launch the app
+        guard source.isReady else { return }
         tasks = try await source.load()
+        // A fresh list no longer contains completed rows — the hiding that
+        // bridged the gap between "window over" and "list reloaded" is done
+        hidden.removeAll()
         context.cache.save("tasks", tasks)
         now = Date()
     }
@@ -47,19 +56,27 @@ class TasksWidget<Source: TaskSource>: Widget {
         if justCompleted.contains(task.id) {
             justCompleted.remove(task.id)
             completedToday = max(completedToday - 1, 0)
-            Task { await source.setCompleted(id: task.id, false) }
+            Task { _ = await source.setCompleted(id: task.id, false) }
             return
         }
         justCompleted.insert(task.id)
         completedToday += 1
         Task {
-            await source.setCompleted(id: task.id, true)
+            // The write can fail silently (revoked access, a changed Things
+            // list): the checkmark must not stand for a change that never landed
+            guard await source.setCompleted(id: task.id, true) else {
+                justCompleted.remove(task.id)
+                completedToday = max(completedToday - 1, 0)
+                return
+            }
             try? await Task.sleep(for: .seconds(6))  // undo window
             guard justCompleted.contains(task.id) else { return }
             justCompleted.remove(task.id)
+            // Hidden until a refresh actually lands: unhiding unconditionally
+            // brought the row back unstruck when the reload was skipped
+            // (another task's undo window still open) or failed
             hidden.insert(task.id)
             try? await refresh()
-            hidden.remove(task.id)
         }
     }
 

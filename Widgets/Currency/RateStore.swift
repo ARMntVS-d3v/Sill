@@ -25,7 +25,20 @@ final class RateStore {
     private var loading: Task<Void, Never>?
 
     private init() {
-        snapshot = cache.load("rates", as: CurrencyWidget.Snapshot.self)
+        snapshot = cache.load("rates", as: CurrencyWidget.Snapshot.self).map(Self.withRuble)
+    }
+
+    /// The ruble row is added by the Central Bank source, but a snapshot cached
+    /// before that change has no ruble — and the cache is only refreshed once every
+    /// six hours. Add it on read too, so it's there right away
+    private static func withRuble(_ value: CurrencyWidget.Snapshot) -> CurrencyWidget.Snapshot {
+        guard !value.rates.contains(where: { $0.code == "RUB" }) else { return value }
+        var copy = value
+        copy.rates = ([
+            CurrencyWidget.Rate(
+                code: "RUB", name: "Russian Ruble", value: 1, previous: 1, nominal: 1)
+        ] + value.rates).sorted { $0.code < $1.code }
+        return copy
     }
 
     /// Where the numbers come from: CBR publishes once a day, coins refresh
@@ -91,10 +104,22 @@ final class RateStore {
     /// in the list, not an empty tile
     private func refreshCrypto() async {
         guard var current = snapshot, !AppSettings.shared.cryptoCodes.isEmpty else { return }
-        guard let crypto = try? await CoinGecko.rates() else { return }
-        current.rates = current.rates.filter { $0.kind == .fiat } + crypto
-        current.cryptoUpdated = Date()
-        store(current)
+        do {
+            let crypto = try await CoinGecko.rates()
+            current.rates = current.rates.filter { $0.kind == .fiat } + crypto
+            current.cryptoUpdated = Date()
+            store(current)
+        } catch {
+            // Fiat may still be fine — only complain when the tile would show
+            // nothing at all: every chosen currency is a coin and none is
+            // cached. That case used to leave a silently empty tile with no Retry
+            sillLog("crypto rates didn't refresh: \(error)")
+            let cryptoCached = current.rates.contains { $0.kind == .crypto }
+            let fiatChosen = AppSettings.shared.currencies.contains { !$0.isCrypto }
+            if !cryptoCached, !fiatChosen {
+                failure = String(localized: "Couldn't load rates")
+            }
+        }
     }
 
     private func store(_ value: CurrencyWidget.Snapshot) {

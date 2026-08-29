@@ -16,17 +16,17 @@ English · [Русский](README.ru.md)
 
 ## What it is
 
-Sill is an open-source macOS dashboard that lives at the notch. Click the notch (or the menu bar icon) and a panel flows out with boards of widgets: calendar, reminders, Things, weather, media controls, currency rates and a converter, timers, system metrics, a file shelf, clipboard history with search, a translator, and an "Ask" bar wired to the LLM of your choice.
+Sill is an open-source macOS dashboard that lives at the notch. Click the notch (or the menu bar icon) and a panel flows out with boards of widgets: calendar, reminders, Things, weather, media controls, currency rates and a converter, timers and a pomodoro, system metrics, a file shelf, clipboard history with search, a translator, and an "Ask" bar wired to the LLM of your choice.
 
 - **Instant** — opens from cache, ≈0% CPU while closed: nothing ticks in the background
-- **Live activities at the notch** — timer, battery, rain, now playing: a compact capsule while the panel is closed
+- **Live activities at the notch** — timer, pomodoro, battery, rain, now playing: a compact capsule while the panel is closed
 - **Boards** — several of them, swipe to switch; edit mode with drag, resize, swap, and undo
 - **Themes** — JSON tokens with hot-reload: write a theme without touching Swift
 - **English and Russian** — follows the system language, switchable in Settings
 
 ## The notch is alive
 
-While the panel is closed, Sill keeps a Dynamic Island at the notch. A track change expands it with the artwork; a running timer, charging, or rain on the horizon slide out as a compact capsule — still at ≈0% CPU.
+While the panel is closed, Sill keeps a Dynamic Island at the notch. A track change expands it with the artwork; a running timer or pomodoro, charging, or rain on the horizon slide out as a compact capsule — still at ≈0% CPU.
 
 ![Track change at the notch](docs/assets/island.gif)
 

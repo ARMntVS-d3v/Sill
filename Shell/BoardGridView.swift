@@ -21,25 +21,36 @@ struct BoardGridView: View {
     private static let step = GridMetrics.unit + GridMetrics.gap
 
     var body: some View {
-        if shownBoard?.kind == .clipboard {
-            ClipboardBoardView(interactive: interactive)
-        } else {
-            VStack(spacing: 0) {
-                grid
-                // The "Ask" bar belongs to the board, not the panel: the clipboard
-                // board has none at all, and while swiping it travels with its own
-                // board — just like the tiles, not as a separate motion
-                if AppSettings.shared.askBar {
-                    // Same view in both roles, no branching: with `if/else` SwiftUI
-                    // treats the branches as different views and rebuilds the bar
-                    // on every role change — along with whatever was typed into it
-                    AskBarView(live: interactive)
-                        .padding(.horizontal, GridMetrics.padding)
-                        .padding(.top, GridMetrics.askGap)
-                        // Bottom panel padding: zeroed out on the grid because the
-                        // bar sits below it — the padding belongs to the bar instead
-                        .padding(.bottom, GridMetrics.bottomPadding)
-                }
+        Group {
+            if shownBoard?.kind == .clipboard {
+                ClipboardBoardView(interactive: interactive)
+            } else {
+                tileBoard
+            }
+        }
+        // The neighbor in the strip is a picture, not a board: without this,
+        // its tiles kept answering taps, context menus, and long presses
+        // during a swipe and the ~340 ms settle — a tap could run
+        // primaryAction and close the panel mid-gesture
+        .allowsHitTesting(interactive)
+    }
+
+    private var tileBoard: some View {
+        VStack(spacing: 0) {
+            grid
+            // The "Ask" bar belongs to the board, not the panel: the clipboard
+            // board has none at all, and while swiping it travels with its own
+            // board — just like the tiles, not as a separate motion
+            if AppSettings.shared.askBar {
+                // Same view in both roles, no branching: with `if/else` SwiftUI
+                // treats the branches as different views and rebuilds the bar
+                // on every role change — along with whatever was typed into it
+                AskBarView(live: interactive)
+                    .padding(.horizontal, GridMetrics.padding)
+                    .padding(.top, GridMetrics.askGap)
+                    // Bottom panel padding: zeroed out on the grid because the
+                    // bar sits below it — the padding belongs to the bar instead
+                    .padding(.bottom, GridMetrics.bottomPadding)
             }
         }
     }
@@ -127,7 +138,7 @@ struct BoardGridView: View {
                     }
                     .frame(width: preview.size.width, height: preview.size.height)
                     .offset(x: offsetX(preview.origin.col), y: offsetY(preview.origin.row))
-                    .animation(.easeOut(duration: 0.14), value: preview)
+                    .animation(.easeOut(duration: Motion.hover), value: preview)
                     .allowsHitTesting(false)
                     .zIndex(20)
             }

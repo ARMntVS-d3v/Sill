@@ -28,7 +28,8 @@ final class ConverterWidget: Widget {
         self.context = context
         from = context.settings.get("from", as: String.self) ?? "USD"
         to = context.settings.get("to", as: String.self) ?? "RUB"
-        amount = context.settings.get("amount", as: Double.self) ?? 100
+        amount = CurrencyWidget.sanitizedAmount(
+            context.settings.get("amount", as: Double.self), fallback: 100)
         context.schedule(every: .seconds(60)) {
             await RateStore.shared.refreshIfStale()
         }
@@ -81,7 +82,7 @@ final class ConverterWidget: Widget {
     // MARK: - Controls
 
     func setAmount(_ value: Double) {
-        amount = max(value, 0)
+        amount = CurrencyWidget.sanitizedAmount(value, fallback: 100)
         context.settings.set("amount", amount)
     }
 
@@ -103,19 +104,19 @@ final class ConverterWidget: Widget {
 
     // MARK: - Picker menus
 
-    /// Fiat — the full CBR list from the snapshot, plus the ruble
+    /// Fiat — the full CBR list from the snapshot. The ruble is in it too: the
+    /// source adds it itself, so there's no second, hand-written entry here
     var fiatOptions: [(code: String, name: String)] {
-        let fiat = (snapshot?.rates ?? [])
+        (snapshot?.rates ?? [])
             .filter { $0.kind == .fiat }
-            .map { (code: $0.code, name: $0.name) }
-        return [(code: "RUB", name: "Russian Ruble")] + fiat
+            .map { (code: $0.code, name: $0.title) }
     }
 
     /// Coins — only the ones chosen in the "Currency" settings: that's the whole snapshot
     var cryptoOptions: [(code: String, name: String)] {
         (snapshot?.rates ?? [])
             .filter { $0.kind == .crypto }
-            .map { (code: $0.code, name: $0.name) }
+            .map { (code: $0.code, name: $0.title) }
     }
 
     // MARK: - Formatting

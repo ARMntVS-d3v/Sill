@@ -139,15 +139,15 @@ final class CalendarWidget: Widget {
         AnyView(CalendarTileView(widget: self, size: context.tileSize))
     }
 
-    // Clicking the tile opens Calendar on today
-    func primaryAction() {
-        let day = Int(Date().timeIntervalSinceReferenceDate)
-        if let url = URL(string: "ical://ekevent/\(day)") {
-            NSWorkspace.shared.open(url)
-        }
-        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
-            NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
-        }
+    // Clicking the tile opens the system Calendar — same shape as the weather
+    // tile. The `-> Bool` is part of the protocol requirement: without it this
+    // becomes a legal overload, the default `{ false }` wins at the call site,
+    // and the whole method is dead code
+    func primaryAction() -> Bool {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal")
+        else { return false }
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+        return true
     }
 
     // Today's events, past ones filtered out except the one happening now
@@ -183,7 +183,9 @@ final class CalendarWidget: Widget {
     // Past events aren't shown at all, struck through or dimmed: the tile
     // answers "what's next", not "how did the day go"
     func listEvents(limit: Int) -> [Event] {
-        let allDay = allDayEvents.prefix(max(limit - 1, 1))
+        // The top block falls back to an all-day event when nothing timed is
+        // left — that event must not be listed a second time right below itself
+        let allDay = allDayEvents.filter { $0.id != upcoming?.id }.prefix(max(limit - 1, 1))
         let timed = following(limit: limit - allDay.count)
         return Array(allDay) + timed
     }

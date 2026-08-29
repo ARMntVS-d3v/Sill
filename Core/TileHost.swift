@@ -97,9 +97,13 @@ final class TileHost: Identifiable {
     }
 
     /// The tile is leaving the board for good — let the widget clear what
-    /// outlives it (published island state, per-tile storage)
+    /// outlives it (published island state, file copies, cache entries), then
+    /// drop the instance settings here: every widget's per-tile settings die
+    /// with the tile, so the shell does it once instead of eighteen widgets
+    /// each remembering to
     func willRemove() {
         widget?.tileWillRemove()
+        context.settings.removeAll()
     }
 
     func sleep() {

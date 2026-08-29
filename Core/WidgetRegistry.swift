@@ -16,6 +16,7 @@ enum WidgetRegistry {
         DiskWidget.self,
         BatteryWidget.self,
         TimerWidget.self,
+        PomodoroWidget.self,
         ScratchpadWidget.self,
         CurrencyWidget.self,
         ConverterWidget.self,

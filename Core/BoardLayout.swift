@@ -17,10 +17,13 @@ enum BoardLayout {
         return result
     }
 
+    // Compared by subtracting from the small grid constants, not by adding to
+    // the origin: an origin near Int.max (broken or imported JSON) would trap
+    // on `origin.col + size.columns` before the bounds check could reject it
     static func isInsideBoard(origin: GridPoint, size: TileSize) -> Bool {
         origin.col >= 0 && origin.row >= 0
-            && origin.col + size.columns <= GridMetrics.columns
-            && origin.row + size.rows <= GridMetrics.rows
+            && origin.col <= GridMetrics.columns - size.columns
+            && origin.row <= GridMetrics.rows - size.rows
     }
 
     // A spot is free if it's inside the board and doesn't overlap other tiles

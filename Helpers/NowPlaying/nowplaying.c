@@ -72,7 +72,7 @@ static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
 // Track key: shows when something different is now playing, and only then is new
 // artwork needed. The daemon sends several notifications per event, and the image
 // runs about a hundred kilobytes — no point shipping it every time
-static char lastTrackKey[512];
+static char lastTrackKey[2064];
 // The daemon doesn't hand over artwork right away: the first notification for a new
 // track arrives without it, the image follows in a later one. So we send it not "on
 // track change" but "until sent for this track" — otherwise artwork only showed up
@@ -89,7 +89,9 @@ static void trackKey(CFDictionaryRef info, char *out, size_t size) {
     out[0] = 0;
     CFStringRef title = CFDictionaryGetValue(info, CFSTR("kMRMediaRemoteNowPlayingInfoTitle"));
     CFStringRef album = CFDictionaryGetValue(info, CFSTR("kMRMediaRemoteNowPlayingInfoAlbum"));
-    char titleBuf[256] = "", albumBuf[256] = "";
+    // 1024 per part: at 256, two podcast episodes sharing a long title prefix
+    // truncated to the same key and shared one artwork
+    char titleBuf[1024] = "", albumBuf[1024] = "";
     if (title && CFGetTypeID(title) == CFStringGetTypeID())
         CFStringGetCString(title, titleBuf, sizeof titleBuf, kCFStringEncodingUTF8);
     if (album && CFGetTypeID(album) == CFStringGetTypeID())
@@ -161,7 +163,7 @@ static void emit(void) {
                     CFNumberGetValue(rateValue, kCFNumberDoubleType, &rate);
                 }
                 Boolean playing = rate >= 0 ? rate > 0 : lastPlaying != 0;
-                char key[512];
+                char key[2064];
                 trackKey(info, key, sizeof key);
                 Boolean sameTrack = strcmp(key, lastTrackKey) == 0;
                 if (!sameTrack) {

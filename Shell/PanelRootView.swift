@@ -140,7 +140,7 @@ struct PanelRootView: View {
                         // that's two subtree layout passes per frame, and the strip
                         // would stutter on a swipe
                         BoardStrip()
-                            .clipped()
+                            .clipShape(BoardClipShape(overhang: TileChromeMetrics.topOverhang))
                             // Tiles sink into the same row the conversation unfolds
                             // from: they slide down toward it and fade
                             .transition(.sinkIntoBar)
@@ -411,10 +411,15 @@ struct NotchWingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 10) {
+                // The wordmark keeps its width no matter how many boards there are.
+                // Without this the dots pushed it out: at eight boards it wrapped to
+                // two lines ("Si/ll"), past that it vanished altogether
                 Text("Sill")
                     .font(TileFont.row.weight(.bold))
                     .kerning(0.4)
                     .foregroundStyle(theme.textPrimary.color)
+                    .fixedSize()
+                    .layoutPriority(1)
                 BoardDotsView()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -495,7 +500,7 @@ struct WingButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hovered)
+        .animation(.easeOut(duration: Motion.hover), value: hovered)
         .onHover { hovered = $0 }
         .help(help)
     }
@@ -509,87 +514,99 @@ struct WingButton: View {
 // Row of board dots. Edit gestures live here rather than in the dot itself: for
 // neighbors to make way under a dragged dot, the row needs to know about the
 // whole gesture. Config is written once on release — writing and undoing it on
-// every drag step jerked the whole row
+// every drag step jerked the whole row.
+//
+// The row never grows past the space it was given. It used to: at eight boards the
+// wordmark wrapped, past a dozen the dots slid under the notch, where the click trap
+// window sits above the panel and ate them — "not a single button works". Now the row
+// behaves like the iOS page indicator: it holds a window of dots and the ones running
+// off the edge shrink.
 private struct BoardDotsView: View {
     @Environment(AppState.self) private var appState
 
-    @State private var draggingID: UUID?
-    @State private var dragX: CGFloat = 0
-    @State private var startIndex = 0
-    @State private var proposedIndex = 0
+    /// Spacing between dot centers: the zones overlap, dots sit tight like a page
+    /// indicator. One step in every mode — renaming, reordering and deleting boards
+    /// live in Settings, so there is nothing here to aim at but the dot itself
+    private var step: CGFloat { WingMetrics.dotStep }
 
-    /// Spacing between dot centers. At rest the hit zones overlap (dots sit tight,
-    /// like a page indicator); in edit mode dots spread out to full 22-pt zones —
-    /// that's what right-click and drag aim at, and overlap gave "wrong dot" clicks
-    private var step: CGFloat {
-        appState.isEditing ? WingMetrics.dotHit : WingMetrics.dotStep
-    }
+    /// Overlap between neighbouring hit zones: the row is `step * count` plus this
+    private var overhang: CGFloat { WingMetrics.dotHit - step }
 
     var body: some View {
-        HStack(spacing: appState.isEditing ? 0 : -5) {
-            ForEach(appState.config.boards) { board in
-                BoardDot(board: board, dragging: draggingID == board.id)
-                    .offset(x: offsetX(for: board))
-                    .zIndex(draggingID == board.id ? 1 : 0)
-                    .animation(.easeOut(duration: Motion.editing), value: proposedIndex)
-                    .gesture(appState.isEditing ? reorderGesture(board) : nil)
+        // The row takes the width left over by the wordmark and lays out inside it.
+        // GeometryReader is greedy, which is exactly right here: whatever the left
+        // wing has is the row's budget
+        GeometryReader { geometry in
+            row(available: geometry.size.width)
+                .frame(width: geometry.size.width, height: WingMetrics.dotHit, alignment: .leading)
+        }
+        .frame(height: WingMetrics.dotHit)
+    }
+
+    private func row(available: CGFloat) -> some View {
+        let boards = appState.config.boards
+        // The plus keeps its own slot: it is part of the row, not a bonus
+        let plus = appState.isEditing ? WingMetrics.dotHit : 0
+        let capacity = max(1, Int((available - plus - overhang) / step))
+        let window = window(count: boards.count, capacity: capacity)
+        return HStack(spacing: 0) {
+            // The dots keep their tight page-indicator step; the plus stands apart
+            HStack(spacing: -5) {
+                ForEach(Array(boards.enumerated()), id: \.element.id) { index, board in
+                    if window.contains(index) {
+                        BoardDot(
+                            board: board,
+                            diameter: diameter(at: index, window: window, count: boards.count))
+                    }
+                }
             }
-            // The plus button only appears in edit mode, same as the tile
-            // remove buttons: boards get added once you're already rearranging widgets
+            // Adding a board is the one board action left in the panel: it's how a
+            // board gets made in the first place, right where the dots are.
+            // Deleting is only in Settings — an action you can't undo by eye
+            // shouldn't sit a pixel away from the one you use constantly
             if appState.isEditing {
                 BoardAddButton()
             }
         }
+        .animation(.easeOut(duration: Motion.editing), value: window)
         .animation(.easeOut(duration: Motion.editing), value: appState.isEditing)
     }
 
-    private func offsetX(for board: Board) -> CGFloat {
-        guard let draggingID else { return 0 }
-        if board.id == draggingID { return dragX }
-        // Neighbors make way for the proposed slot
-        guard let index = appState.config.boards.firstIndex(where: { $0.id == board.id })
-        else { return 0 }
-        if startIndex < proposedIndex, index > startIndex, index <= proposedIndex {
-            return -step
-        }
-        if startIndex > proposedIndex, index >= proposedIndex, index < startIndex {
-            return step
-        }
-        return 0
+    /// Which dots are on screen. The window follows the active dot — it stays in
+    /// the middle, so both directions are visible
+    private func window(count: Int, capacity: Int) -> Range<Int> {
+        guard count > capacity else { return 0..<count }
+        let active = appState.config.boards.firstIndex { $0.id == appState.config.activeBoardID }
+        let start = min(max((active ?? 0) - capacity / 2, 0), count - capacity)
+        return start..<(start + capacity)
     }
 
-    private func reorderGesture(_ board: Board) -> some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { value in
-                if draggingID != board.id {
-                    draggingID = board.id
-                    startIndex = appState.config.boards.firstIndex { $0.id == board.id } ?? 0
-                    proposedIndex = startIndex
-                }
-                dragX = value.translation.width
-                let shift = Int((dragX / step).rounded())
-                proposedIndex = min(
-                    max(startIndex + shift, 0), appState.config.boards.count - 1)
-            }
-            .onEnded { _ in
-                let target = proposedIndex
-                // Offsets are cleared instantly, at the same moment the change
-                // applies — same as tiles
-                draggingID = nil
-                dragX = 0
-                if target != startIndex {
-                    appState.moveBoard(board.id, to: target)
-                }
-            }
+    /// Edge dots shrink when there is more beyond them — the same two steps as the
+    /// iOS page indicator. Below four visible dots there is nothing to hint with:
+    /// shrinking half the row would just look broken
+    private func diameter(at index: Int, window: Range<Int>, count: Int) -> CGFloat {
+        let full = WingMetrics.dot
+        guard window.count >= 4, window.count < count else { return full }
+        if window.lowerBound > 0 {
+            if index == window.lowerBound { return WingMetrics.dotFar }
+            if index == window.lowerBound + 1 { return WingMetrics.dotNear }
+        }
+        if window.upperBound < count {
+            if index == window.upperBound - 1 { return WingMetrics.dotFar }
+            if index == window.upperBound - 2 { return WingMetrics.dotNear }
+        }
+        return full
     }
+
 }
 
-// Board dot: 7 pt itself (9 in edit mode, where it's a target), 22-pt hit zone.
-// Dots don't jiggle: horizontal shake on a small circle reads as a glitch, not an
-// invitation, and a wandering target would get in the way of right-clicking
+// Board dot: 7 pt itself, 22-pt hit zone. A dot only switches boards — adding,
+// renaming, reordering and deleting live in Settings → Boards, where they're
+// visible and where a menu bar manager can't swallow the right-click
 private struct BoardDot: View {
     let board: Board
-    var dragging = false
+    /// Set by the row: full size, or shrunk if the dot is running off the edge
+    var diameter: CGFloat = WingMetrics.dot
 
     @Environment(AppState.self) private var appState
     @Environment(\.theme) private var theme
@@ -600,157 +617,21 @@ private struct BoardDot: View {
     var body: some View {
         Circle()
             .fill(fill)
-            .frame(
-                width: appState.isEditing ? 9 : 7,
-                height: appState.isEditing ? 9 : 7)
-            .scaleEffect(dragging ? 1.4 : 1)
+            .frame(width: diameter, height: diameter)
+            .animation(.easeOut(duration: Motion.editing), value: diameter)
             .frame(width: WingMetrics.dotHit, height: WingMetrics.dotHit)
             // The dot's hit zone is 22 — the highlight shows where to aim
             .background(Circle().fill(hovered ? theme.tileHover.color : .clear))
             .contentShape(Rectangle())
             .onHover { hovered = $0 }
-            .animation(.easeOut(duration: 0.12), value: hovered)
-            .animation(.easeOut(duration: Motion.hover), value: dragging)
-            // In edit mode the dot bobs gently up and down — slow and by a
-            // single pixel: at tile-jiggle speed a small circle reads as shaking
-            .modifier(DotBob(active: appState.isEditing && !dragging))
-            // A tap switches boards even in edit mode; removal is a right-click
+            .animation(.easeOut(duration: Motion.hover), value: hovered)
             .onTapGesture { appState.selectBoardAnimated(board.id) }
-            // Long press opens the same menu natively: menu bar managers
-            // (Bartender, Thaw) grab right-clicks in the menu bar strip with a
-            // global tap, above our panel — the wings sit exactly there, and
-            // .contextMenu never gets the click on such setups
-            .onLongPressGesture(minimumDuration: 0.45) { showMenu() }
             .help(board.name)
-        .contextMenu {
-            Button("Move Left") { appState.moveBoard(board.id, by: -1) }
-                .disabled(appState.config.boards.first?.id == board.id)
-            Button("Move Right") { appState.moveBoard(board.id, by: 1) }
-                .disabled(appState.config.boards.last?.id == board.id)
-            if board.kind == .tiles {
-                Button("Rename…") { rename() }
-            }
-            Divider()
-            Button("Delete Board", role: .destructive) {
-                appState.removeBoard(board.id)
-            }
-            .disabled(appState.config.boards.count < 2)
-        }
-    }
-
-    private func showMenu() {
-        let boards = appState.config.boards
-        var entries: [BoardDotMenu.Entry?] = [
-            .init(title: String(localized: "Move Left"), enabled: boards.first?.id != board.id) {
-                appState.moveBoard(board.id, by: -1)
-            },
-            .init(title: String(localized: "Move Right"), enabled: boards.last?.id != board.id) {
-                appState.moveBoard(board.id, by: 1)
-            },
-        ]
-        if board.kind == .tiles {
-            entries.append(.init(title: String(localized: "Rename…"), enabled: true) { rename() })
-        }
-        entries.append(nil)
-        entries.append(
-            .init(title: String(localized: "Delete Board"), enabled: boards.count > 1) {
-                appState.removeBoard(board.id)
-            })
-        BoardDotMenu().show(entries)
-    }
-
-    // Renaming uses a system input dialog: a field of its own wouldn't fit in
-    // the wing, and opening Settings for a single line would be overkill
-    private func rename() {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "Board Name")
-        alert.addButton(withTitle: String(localized: "Save"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        field.stringValue = board.name
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
-            appState.renameBoard(board.id, to: field.stringValue)
-        }
     }
 
     private var fill: Color {
         if isActive { return theme.accent.color }
         return hovered ? theme.textPrimary.color : theme.textMuted.color.opacity(0.5)
-    }
-}
-
-// Native menu for a board dot, same items as its .contextMenu. Shown on long
-// press because right-clicks over the menu bar strip belong to whoever grabbed
-// them globally (Bartender, Thaw) — see BoardDot.showMenu
-@MainActor
-private final class BoardDotMenu: NSObject {
-    struct Entry {
-        let title: String
-        let enabled: Bool
-        let action: () -> Void
-
-        init(title: String, enabled: Bool, action: @escaping () -> Void) {
-            self.title = title
-            self.enabled = enabled
-            self.action = action
-        }
-    }
-
-    private var actions: [Int: () -> Void] = [:]
-    private var strongSelf: BoardDotMenu?
-
-    /// nil entry = separator
-    func show(_ entries: [Entry?]) {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for (index, entry) in entries.enumerated() {
-            guard let entry else {
-                menu.addItem(.separator())
-                continue
-            }
-            let item = NSMenuItem(title: entry.title, action: #selector(run(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = index
-            item.isEnabled = entry.enabled
-            actions[index] = entry.action
-            menu.addItem(item)
-        }
-        strongSelf = self  // the menu keeps us alive while open
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-        strongSelf = nil
-    }
-
-    @objc private func run(_ sender: NSMenuItem) {
-        actions[sender.tag]?()
-    }
-}
-
-// Dot bob in edit mode. Started and stopped only via explicit withAnimation:
-// a declarative repeatForever doesn't die when state resets in a no-animation transaction
-private struct DotBob: ViewModifier {
-    let active: Bool
-    @State private var shift: CGFloat = 0
-    @State private var phase = Double.random(in: 0...Motion.dotBob)
-
-    func body(content: Content) -> some View {
-        content
-            .offset(y: shift)
-            .onChange(of: active, initial: true) { _, on in
-                if on {
-                    shift = -WingMetrics.dotBob
-                    withAnimation(
-                        .easeInOut(duration: Motion.dotBob).repeatForever(autoreverses: true)
-                            .delay(phase)
-                    ) {
-                        shift = WingMetrics.dotBob
-                    }
-                } else {
-                    withAnimation(.easeOut(duration: Motion.editing)) { shift = 0 }
-                }
-            }
     }
 }
 
@@ -773,13 +654,12 @@ private struct BoardAddButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: hovered)
+        .animation(.easeOut(duration: Motion.hover), value: hovered)
         .onHover { hovered = $0 }
         .help("Add a board")
     }
 }
 
-// Hit zones in the wings — docs/standards.md, "hit zones" section
 enum WingMetrics {
     static let hit: CGFloat = 26
     static let hitRadius: CGFloat = 7
@@ -787,6 +667,11 @@ enum WingMetrics {
     /// Spacing between dot centers at rest: a 22-pt zone at -5 spacing.
     /// In edit mode the step equals dotHit — zones don't overlap, right-click lands
     static let dotStep: CGFloat = 17
-    /// Bob amplitude for a dot in edit mode, pt
-    static let dotBob: CGFloat = 1
+    /// Dot diameter
+    static let dot: CGFloat = 7
+    /// When there are more boards than fit, the row keeps its width and the dots
+    /// running off the edge shrink — the same page indicator as on iOS. Two steps:
+    /// the next-to-last slot, then the last one
+    static let dotNear: CGFloat = 5
+    static let dotFar: CGFloat = 3
 }

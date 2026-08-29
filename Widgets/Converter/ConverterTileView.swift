@@ -207,6 +207,10 @@ struct ConverterTileView: View {
         let normalized = draft.replacingOccurrences(of: ",", with: ".")
         if let value = Double(normalized), value > 0 {
             widget.setAmount(value)
+        } else if !draft.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Rejected input keeps the field open: closing on it looked as if
+            // the number had been accepted. Empty input is a cancel
+            return
         }
         editing = false
     }

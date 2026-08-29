@@ -138,6 +138,11 @@ final class TimerWidget: Widget {
     func add(minutes: Int) {
         guard state.mode == .timer else { return }
         state.duration += TimeInterval(minutes * 60)
+        // Extending a rung timer resumes the countdown: the finish cleared
+        // startedAt, and without restoring it "+5m" showed 5:00 standing still
+        if finished {
+            state.startedAt = Date()
+        }
         finished = false
         persist()
     }

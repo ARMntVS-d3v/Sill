@@ -11,6 +11,9 @@ struct ShelfTileView: View {
 
     @Environment(\.theme) private var theme
     @State private var targeted = false
+    /// Part of a dropped batch didn't fit — the warning border flashes so the
+    /// overflow isn't silent
+    @State private var overflowed = false
 
     var body: some View {
         Group {
@@ -33,11 +36,12 @@ struct ShelfTileView: View {
         .overlay {
             RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous)
                 .strokeBorder(
-                    (widget.isFull ? theme.warning.color : theme.accent.color)
-                        .opacity(targeted ? 0.9 : 0),
+                    (widget.isFull || overflowed ? theme.warning.color : theme.accent.color)
+                        .opacity(targeted || overflowed ? 0.9 : 0),
                     lineWidth: 2)
         }
         .animation(.easeOut(duration: Motion.hover), value: targeted)
+        .animation(.easeOut(duration: Motion.hover), value: overflowed)
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
             guard !widget.isFull else { return false }
             load(providers)
@@ -50,13 +54,28 @@ struct ShelfTileView: View {
         }
     }
 
-    /// Files arrive as URLs, each one a separate provider
+    /// Files arrive as URLs, each one a separate provider. Collected first and
+    /// added in one batch: adding each as its load finished let the capacity
+    /// race decide which files survived — not the order they were dropped in.
+    /// A batch that didn't fully fit flashes the warning border instead of
+    /// losing the overflow silently
     private func load(_ providers: [NSItemProvider]) {
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url else { return }
-                Task { @MainActor in widget.add([url]) }
+        Task { @MainActor in
+            var urls: [URL] = []
+            for provider in providers {
+                let url: URL? = await withCheckedContinuation { continuation in
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        continuation.resume(returning: url)
+                    }
+                }
+                if let url { urls.append(url) }
             }
+            guard !urls.isEmpty else { return }
+            let added = widget.add(urls)
+            guard added < urls.count else { return }
+            overflowed = true
+            try? await Task.sleep(for: .seconds(Motion.signalHold))
+            overflowed = false
         }
     }
 

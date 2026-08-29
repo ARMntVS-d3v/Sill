@@ -147,8 +147,10 @@ protocol Widget: AnyObject {
     @discardableResult
     func primaryAction() -> Bool
     /// The tile is being removed from the board: clear anything that outlives
-    /// the instance — published island state, per-tile storage. Without this
-    /// a running timer kept ringing at the notch after its tile was deleted
+    /// the instance — published island state, file copies on disk, per-tile
+    /// cache entries. Without this a running timer kept ringing at the notch
+    /// after its tile was deleted. Instance settings need no clearing here:
+    /// the shell removes them right after this hook
     func tileWillRemove()
 }
 

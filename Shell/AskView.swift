@@ -160,6 +160,9 @@ struct AskBarView: View {
     private func send() {
         let question = session.draft
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Mid-answer the session ignores ask() — the draft must stay in the
+        // field then, not be cleared into nowhere
+        guard !session.isAsking else { return }
         session.draft = ""
         // The conversation only unfolds on Enter: while someone is still typing,
         // the board stays put — no need to shift tiles on every keystroke

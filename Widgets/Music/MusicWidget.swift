@@ -90,8 +90,17 @@ final class MusicWidget: Widget {
         now = Date()
     }
 
+    /// Decoded once per artwork, not on every render: the computed property
+    /// re-decoded the JPEG on each hover — the same cost the capsule already
+    /// caches away. Keyed by the raw data, which only changes with the track
+    @ObservationIgnored private var artworkCache: (data: Data, image: NSImage)?
+
     var artworkImage: NSImage? {
-        track?.artwork.flatMap { NSImage(data: $0) }
+        guard let data = track?.artwork else { return nil }
+        if let cached = artworkCache, cached.data == data { return cached.image }
+        guard let image = NSImage(data: data) else { return nil }
+        artworkCache = (data, image)
+        return image
     }
 
     // "1:04 / 3:47"; an hour and up rolls into hours — a movie showed

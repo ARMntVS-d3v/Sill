@@ -36,6 +36,11 @@ final class CurrencyWidget: Widget {
         var kind: Kind = .fiat
 
         var id: String { code }
+        /// Name in the app's language. CBR sends Russian names, and in an English UI
+        /// they read as someone else's window; the system knows the name of every
+        /// currency in every locale. Coins keep their CoinGecko name — those are
+        /// English by nature, and "Bitcoin" needs no translating
+        var title: String { CurrencyWidget.displayName(code: code, fallback: name, kind: kind) }
         /// Rubles per single unit — CBR reports the rate per nominal (e.g. per 10 yuan)
         var perUnit: Double { nominal > 0 ? value / Double(nominal) : value }
         var previousPerUnit: Double { nominal > 0 ? previous / Double(nominal) : previous }
@@ -54,6 +59,27 @@ final class CurrencyWidget: Widget {
     /// Default shown currencies: dollar, euro, and lari — the rest is in tile settings
     static let defaultCodes = ["USD", "EUR", "GEL"]
 
+    nonisolated static func displayName(code: String, fallback: String, kind: Rate.Kind) -> String {
+        guard kind == .fiat,
+              let name = Locale.current.localizedString(forCurrencyCode: code),
+              !name.isEmpty
+        else { return fallback }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
+    /// Search in settings: by code, and by name in any of the three spellings —
+    /// the source's own, the app's language, and English. Before this, "eur" and
+    /// "dollar" found nothing in a Russian list from the Central Bank
+    nonisolated static func matches(_ rate: Rate, query: String) -> Bool {
+        let text = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !text.isEmpty else { return false }
+        if rate.code.lowercased().hasPrefix(text) { return true }
+        if rate.name.lowercased().contains(text) { return true }
+        if rate.title.lowercased().contains(text) { return true }
+        let english = Locale(identifier: "en").localizedString(forCurrencyCode: rate.code)
+        return english?.lowercased().contains(text) ?? false
+    }
+
     private let context: WidgetContext
     /// Rates, networking, and cache live in the shared RateStore: shared by
     /// "Currency" and "Converter"
@@ -62,9 +88,21 @@ final class CurrencyWidget: Widget {
     /// How many units we're converting — 1 by default, changed by typing
     var amount: Double = 1
 
+    /// Bounds for the conversion amount, shared with the converter. The cap
+    /// keeps `Int(amount)` in the display path from trapping: 1e20 typed into
+    /// the field is finite, equals its own `rounded()`, and Int(1e20) crashes —
+    /// and the value used to be persisted before rendering, so the tile
+    /// crashed again on every launch until the key was deleted by hand
+    static let maxAmount: Double = 999_999_999_999
+
+    static func sanitizedAmount(_ value: Double?, fallback: Double) -> Double {
+        guard let value, value.isFinite else { return fallback }
+        return min(max(value, 0), maxAmount)
+    }
+
     init(context: WidgetContext) {
         self.context = context
-        amount = context.settings.get("amount", as: Double.self) ?? 1
+        amount = Self.sanitizedAmount(context.settings.get("amount", as: Double.self), fallback: 1)
         // Frequent tick, but cheap: the network is only touched once data goes stale
         context.schedule(every: .seconds(60)) {
             await RateStore.shared.refreshIfStale()
@@ -93,33 +131,51 @@ final class CurrencyWidget: Widget {
     }
 
     func setAmount(_ value: Double) {
-        amount = max(value, 0)
+        amount = Self.sanitizedAmount(value, fallback: 1)
         context.settings.set("amount", amount)
     }
 
     /// What we display in. CBR's rate comes in rubles, so everything else is
     /// divided by the base currency's rate: a currency's rate to itself is
-    /// meaningless, so the base currency drops out of the list
+    /// meaningless, so the base currency drops out of the list.
+    /// Coins have their own base — see AppSettings.cryptoBase
     var base: String { AppSettings.shared.baseCurrency }
 
-    /// How many rubles a unit of the base currency costs
-    private var baseUnit: Double {
-        guard base != "RUB", let snapshot else { return 1 }
-        return snapshot.rates.first { $0.code == base }?.perUnit ?? 1
+    /// How many rubles a unit of that currency costs. nil — its own rate is missing
+    /// and conversion is impossible: substituting 1 used to leave ruble numbers
+    /// labeled with the base currency's symbol
+    private func unit(of code: String) -> Double? {
+        guard code != "RUB" else { return 1 }
+        return snapshot?.rates.first { $0.code == code }?.perUnit
     }
 
+    /// The base actually applied to this kind: falls back to rubles when the chosen
+    /// base's own rate is missing, so numbers and symbol always agree
+    func effectiveBase(for kind: Rate.Kind) -> String {
+        let wanted = kind == .crypto ? AppSettings.shared.cryptoBase : base
+        return unit(of: wanted) == nil ? "RUB" : wanted
+    }
+
+    /// Which base a given row is shown in
+    func base(for rate: Rate) -> String { effectiveBase(for: rate.kind) }
+
+    /// The currencies' base — the one that drops out of the list
+    var effectiveBase: String { effectiveBase(for: .fiat) }
+
     private func converted(_ rate: Rate) -> Rate {
-        guard baseUnit != 1 else { return rate }
+        guard let unit = unit(of: effectiveBase(for: rate.kind)), unit != 1 else { return rate }
         var copy = rate
-        copy.value = rate.perUnit / baseUnit
-        copy.previous = rate.previousPerUnit / baseUnit
+        copy.value = rate.perUnit / unit
+        copy.previous = rate.previousPerUnit / unit
         copy.nominal = 1
         return copy
     }
 
     func rates(limit: Int) -> [Rate] {
         guard let snapshot else { return [] }
-        let wanted = codes.filter { $0 != base }
+        // Only the currencies' base drops out: a coin never equals it, and the same
+        // currency shown in another base is still worth reading
+        let wanted = codes.filter { $0 != effectiveBase }
         let selected = wanted.compactMap { code in snapshot.rates.first { $0.code == code } }
         return Array(selected.prefix(limit)).map(converted)
     }
@@ -178,7 +234,12 @@ enum CentralBank {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 8
         let session = URLSession(configuration: config)
-        let (data, _) = try await session.data(from: url)
+        let (data, response) = try await session.data(from: url)
+        // Status is checked like the other sources' (Open-Meteo, CoinGecko):
+        // an error page parsed as JSON used to slip through as a valid answer
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw URLError(.badServerResponse)
+        }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let valutes = json["Valute"] as? [String: [String: Any]]
@@ -199,7 +260,16 @@ enum CentralBank {
         }
         .sorted { $0.code < $1.code }
 
-        return .init(date: day, updated: Date(), rates: rates)
+        // Valid JSON with an empty Valute is not an answer: storing it would
+        // overwrite a good cached snapshot with nothing — the offline fallback lost
+        guard !rates.isEmpty else { throw URLError(.cannotParseResponse) }
+
+        // The ruble isn't in the Central Bank list — it is the quote currency there,
+        // everything is priced in it. Without this row the ruble could be removed
+        // from the tile and never added back
+        let ruble = CurrencyWidget.Rate(
+            code: "RUB", name: "Russian Ruble", value: 1, previous: 1, nominal: 1)
+        return .init(date: day, updated: Date(), rates: ([ruble] + rates).sorted { $0.code < $1.code })
     }
 }
 

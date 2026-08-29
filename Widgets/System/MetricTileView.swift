@@ -110,18 +110,31 @@ struct MetricTileView: View {
                     .padding(.top, TileMetrics.blockGap)
                 }
 
-                Spacer(minLength: 6)
-
-                VStack(spacing: size == .large ? 8 : 5) {
-                    ForEach(details.prefix(detailLimit)) { detail in
-                        // Bars only at the large size: the rectangle has no height for them
-                        DetailRow(detail: detail, tint: accent, showsBar: size == .large)
-                    }
+                // How many detail rows are shown is decided by the layout, not by a
+                // number picked by hand: with a fixed count the last row was cut off
+                // by the tile edge ("efficiency 2 cores" in the rectangle and in the
+                // large size). ViewThatFits takes the first variant that fits the
+                // space left over, so nothing ever gets clipped
+                ViewThatFits(in: .vertical) {
+                    detailStack(3)
+                    detailStack(2)
+                    detailStack(1)
+                    Color.clear.frame(height: 0)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(TileMetrics.padding)
+    }
+
+    private func detailStack(_ count: Int) -> some View {
+        VStack(spacing: size == .large ? 8 : 5) {
+            ForEach(details.prefix(min(count, detailLimit))) { detail in
+                // Bars only at the large size: the rectangle has no height for them
+                DetailRow(detail: detail, tint: accent, showsBar: size == .large)
+            }
+        }
     }
 }
 

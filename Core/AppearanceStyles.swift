@@ -40,7 +40,10 @@ enum PanelBackgroundStyle: String, Codable, CaseIterable, Sendable {
         case .halo: String(localized: "Halo")
         case .material: String(localized: "Material")
         case .aurora: String(localized: "Glow")
-        case .underGlow: String(localized: "Underglow")
+        // Not "Underglow": the edge picker right above has an item with that
+        // exact label, and one catalog string can't be two different translations
+        // (the same collision "Clear" once had)
+        case .underGlow: String(localized: "Backlight")
         case .spot: String(localized: "Spotlight")
         }
     }

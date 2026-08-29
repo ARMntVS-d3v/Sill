@@ -116,6 +116,7 @@ final class NowPlayingCenter {
             onFailure: { [weak self] message in
                 self?.failure = message
             })
+        bridge.onTermination = { [weak self] in self?.helperTerminated() }
         self.bridge = bridge
         bridge.start()
         watchSourceExit()
@@ -135,7 +136,11 @@ final class NowPlayingCenter {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             let pid = app?.processIdentifier
             Task { @MainActor in
-                guard let self, let pid, pid == self.track?.sourcePID else { return }
+                guard let self, let pid else { return }
+                // The pid is free for reuse now — the cached music-or-video
+                // answer must not outlive the process it was about
+                self.videoSourceCache[pid] = nil
+                guard pid == self.track?.sourcePID else { return }
                 self.bridge?.refresh()
             }
         }
@@ -168,6 +173,24 @@ final class NowPlayingCenter {
                 bridge?.refresh()
             }
         }
+    }
+
+    // The helper died on its own (jetsam, dylib crash). Restart it while
+    // anyone is subscribed — otherwise music stays dead until the app
+    // restarts, since subscribe() only builds a bridge when there is none.
+    // The cooldown keeps a helper that dies right at launch from spawning
+    // perl in a loop
+    private static let helperRestartCooldown: TimeInterval = 10
+    @ObservationIgnored private var lastHelperRestart: Date?
+
+    private func helperTerminated() {
+        guard !subscribers.isEmpty else { return }
+        let now = Date()
+        if let last = lastHelperRestart, now.timeIntervalSince(last) < Self.helperRestartCooldown {
+            return
+        }
+        lastHelperRestart = now
+        bridge?.start()
     }
 
     func unsubscribe(_ id: UUID) {
@@ -391,6 +414,8 @@ final class NowPlayingBridge {
     private var lastKey: String?
     private let onUpdate: @MainActor (NowPlayingTrack?) -> Void
     private let onFailure: @MainActor (String) -> Void
+    /// Helper died on its own (not via stop()) — the center may restart it
+    var onTermination: (@MainActor () -> Void)?
 
     // The library sits in the bundle next to the frameworks
     static var helperURL: URL {
@@ -442,9 +467,13 @@ final class NowPlayingBridge {
             Task { @MainActor in self?.consume(chunk) }
         }
 
-        task.terminationHandler = { finished in
+        task.terminationHandler = { [weak self] finished in
             let reason = finished.terminationReason == .uncaughtSignal ? "signal" : "exit"
             sillLog("[music] helper terminated: \(reason) \(finished.terminationStatus)")
+            // The helper died on its own (stop() removes this handler first):
+            // drop the dead process and the stale track, or the tile keeps
+            // showing a running scrubber for a player that's gone
+            Task { @MainActor in self?.helperDied() }
         }
         do {
             try task.run()
@@ -486,8 +515,25 @@ final class NowPlayingBridge {
         write(String(format: "seek %.2f", max(seconds, 0)))
     }
 
+    private func helperDied() {
+        (process?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        (process?.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
+        try? input?.close()
+        process = nil
+        input = nil
+        buffer.removeAll()
+        lastKey = nil
+        lastArtwork = nil
+        onUpdate(nil)
+        onTermination?()
+    }
+
     private func write(_ line: String) {
-        guard let input, let data = (line + "\n").data(using: .utf8) else { return }
+        // isRunning narrows the window; the real safety net is SIG_IGN for
+        // SIGPIPE at app start — the signal fires before `write` returns
+        guard let process, process.isRunning,
+            let input, let data = (line + "\n").data(using: .utf8)
+        else { return }
         try? input.write(contentsOf: data)
     }
 
@@ -503,12 +549,18 @@ final class NowPlayingBridge {
     }
 
     private func handle(line: Data) {
-        guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+        guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+            // A broken line points at a helper bug — dropping it silently hid that
+            sillLog("[music] unparseable line from helper, \(line.count) bytes")
+            return
+        }
         if let error = json["error"] as? String {
             onFailure(error)
             return
         }
-        guard json["empty"] == nil, let title = json["title"] as? String else {
+        // An empty title is the placeholder, not a track: "" used to render
+        // as a real track with no name
+        guard json["empty"] == nil, let title = json["title"] as? String, !title.isEmpty else {
             lastKey = nil
             lastArtwork = nil
             onUpdate(nil)

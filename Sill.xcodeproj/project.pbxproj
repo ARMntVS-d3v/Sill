@@ -24,6 +24,7 @@
 		28E61BD8B43DE020A983193E /* TileParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8A4A68691A42EEFFB3CCF4 /* TileParts.swift */; };
 		2A764DD6D501B4A51DE40AD1 /* MusicTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE86C91CF43F8C08EBC71BF8 /* MusicTileView.swift */; };
 		2BC947F629A8DE67AD0C0E0C /* CurrencyWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB269CC5C285C70732E5E664 /* CurrencyWidget.swift */; };
+		3349C2B4C20F95E7D1C5ADCD /* PomodoroWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641B9360358AB2A12374EC2 /* PomodoroWidget.swift */; };
 		3D8C8C27BCDE19446F747A37 /* MetricTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FBBC671026126919C10F593 /* MetricTileView.swift */; };
 		3F313A73079A038376DE61B1 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = BD5DF6A82D13799B7B74217C /* AppIcon.icns */; };
 		42491E901065A84FD160547F /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F34650B6A22F6F468210600F /* AppSettings.swift */; };
@@ -61,11 +62,13 @@
 		943A3A2034B3F79FA0BADF3B /* TimerTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A6D925B075E75DE91076AA /* TimerTileView.swift */; };
 		949D9787425474831ED34479 /* AppearanceStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1413CECFB83C148F8B17CE4D /* AppearanceStyles.swift */; };
 		9E73B290E7279AFC22EF6800 /* NotchTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46DF66B9A490FFEF8948456 /* NotchTrigger.swift */; };
+		9E9F64E4E27F0A43D84C8C4E /* PomodoroTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F741E5618F6D98C3CFE15C /* PomodoroTileView.swift */; };
 		A895AE275FDA8413ADF66CE0 /* SystemWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C8E0298F4103284C004CE8 /* SystemWidget.swift */; };
 		ABF527AD9FC357777E0C85A2 /* TimerActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CD069E09ED47A45A240FB5 /* TimerActivity.swift */; };
 		ACAC89C26EA1015FD4320574 /* ShelfActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 336D6E573579789A529D86B9 /* ShelfActivity.swift */; };
 		ADF420BC11035AB120EB904F /* ShelfTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299DE64904D5235D3645A0FF /* ShelfTileView.swift */; };
 		B0D182BF8B62ED776E32E642 /* ScratchpadWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC9C508609F74CA811A6EE67 /* ScratchpadWidget.swift */; };
+		B3E29C1F5D57B31542FD5F4A /* TileDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDF6129F2177C67B460FB9E /* TileDial.swift */; };
 		BB19204826AD6B12A45C7747 /* WidgetRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3256F435B7B5B2A2532123 /* WidgetRegistry.swift */; };
 		BC0D712F899EE3538AC4A53F /* ShelfDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5452A607AE37F24798143A26 /* ShelfDrag.swift */; };
 		BCB0025294564AD89124F1B6 /* CalendarWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069AAB7459E4413A8851A307 /* CalendarWidget.swift */; };
@@ -82,6 +85,7 @@
 		E26396C6ABD9CE24A5D2298E /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC343F00482F917EB36FB366 /* AskView.swift */; };
 		E53615A32697CB4B38BDBD9D /* ConverterWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72A165737C474D7685A90A6 /* ConverterWidget.swift */; };
 		E9808AFA0001DD5157B9331F /* WeatherTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2FF7DCAAD06D40A9BAC1C9 /* WeatherTileView.swift */; };
+		EACB4B18105F920F139514B5 /* PomodoroActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10801BC45173278FB2D4D02 /* PomodoroActivity.swift */; };
 		EAF81B79072F1BE697D02041 /* ClipboardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40CAC0D6A8005794D7C835BD /* ClipboardStore.swift */; };
 		F3795A39A0D5F40B926B54EE /* WidgetMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D489EDA21303A9B7FB0897D9 /* WidgetMenu.swift */; };
 		F3A0E389F22A14961F3341AB /* NowPlayingBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0C5D461834D4A93EC0611E /* NowPlayingBridge.swift */; };
@@ -136,6 +140,7 @@
 		6B60B4BCB06D06B61DAD9337 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		6E2FF7DCAAD06D40A9BAC1C9 /* WeatherTileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherTileView.swift; sourceTree = "<group>"; };
 		715F57AF1B77C469B0166F55 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		7641B9360358AB2A12374EC2 /* PomodoroWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroWidget.swift; sourceTree = "<group>"; };
 		78C081EA4C08E7F33598A832 /* ScratchpadTileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScratchpadTileView.swift; sourceTree = "<group>"; };
 		7F02006B068B4B3377EFBB0C /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		7F6F1533C1E4BCC8AFE86615 /* ClipboardCardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardCardsView.swift; sourceTree = "<group>"; };
@@ -158,6 +163,7 @@
 		B8B34788F831B62E7CB2C59E /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		B9FFAC231ACC490B663309D5 /* PanelRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelRootView.swift; sourceTree = "<group>"; };
 		BD5DF6A82D13799B7B74217C /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		BFDF6129F2177C67B460FB9E /* TileDial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileDial.swift; sourceTree = "<group>"; };
 		BFEEF7614FD09E842A56311A /* WeatherActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherActivity.swift; sourceTree = "<group>"; };
 		BFFC17C12A4CAB6AE0C4B1DD /* WidgetStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetStorage.swift; sourceTree = "<group>"; };
 		C72A165737C474D7685A90A6 /* ConverterWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConverterWidget.swift; sourceTree = "<group>"; };
@@ -174,12 +180,14 @@
 		DE2C63123C8447C6AF61CAFD /* TaskSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSource.swift; sourceTree = "<group>"; };
 		DECBE717A754D7DF6244A61B /* ClipboardBoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBoardView.swift; sourceTree = "<group>"; };
 		DED38C5F51E7F056A1E45021 /* FocusRelease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusRelease.swift; sourceTree = "<group>"; };
+		E10801BC45173278FB2D4D02 /* PomodoroActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroActivity.swift; sourceTree = "<group>"; };
 		E46DF66B9A490FFEF8948456 /* NotchTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchTrigger.swift; sourceTree = "<group>"; };
 		E6C8BC64B720AE7AB4E0C626 /* nowplaying.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = nowplaying.c; sourceTree = "<group>"; };
 		E8344295E5633F77E81DFD17 /* SecretsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretsStore.swift; sourceTree = "<group>"; };
 		EF06C347372FAA14DE096147 /* TranslateWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslateWidget.swift; sourceTree = "<group>"; };
 		F34650B6A22F6F468210600F /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		F5DFBC29E9962227BA8AEDEB /* Sill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sill.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7F741E5618F6D98C3CFE15C /* PomodoroTileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroTileView.swift; sourceTree = "<group>"; };
 		F8A6D925B075E75DE91076AA /* TimerTileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerTileView.swift; sourceTree = "<group>"; };
 		F95DDAF508234A6DF2678FF7 /* Motion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Motion.swift; sourceTree = "<group>"; };
 		FAB8D35596CE0FCEA598301E /* TileTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileTypography.swift; sourceTree = "<group>"; };
@@ -277,6 +285,7 @@
 				E8344295E5633F77E81DFD17 /* SecretsStore.swift */,
 				DDE9EA5B29C63C5FC10A7942 /* Theme.swift */,
 				05647BE152D5CB864664114C /* TileControls.swift */,
+				BFDF6129F2177C67B460FB9E /* TileDial.swift */,
 				C9B154FEB647A253C245683A /* TileHost.swift */,
 				0B8A4A68691A42EEFFB3CCF4 /* TileParts.swift */,
 				FAB8D35596CE0FCEA598301E /* TileTypography.swift */,
@@ -337,6 +346,7 @@
 				3108AE479A3C02B6B3FD2D6F /* Converter */,
 				BF534F926049E8315C8808D6 /* Currency */,
 				23CCA6F640CAC3720A3DD5D9 /* Music */,
+				A97177E4DAB4AB50877AE183 /* Pomodoro */,
 				A05E76DFA70BC734264E64DE /* Scratchpad */,
 				F32794A21E2BA419D8BA74D9 /* Shelf */,
 				F811B7CB308698CB424D679A /* System */,
@@ -355,6 +365,16 @@
 				DC9C508609F74CA811A6EE67 /* ScratchpadWidget.swift */,
 			);
 			path = Scratchpad;
+			sourceTree = "<group>";
+		};
+		A97177E4DAB4AB50877AE183 /* Pomodoro */ = {
+			isa = PBXGroup;
+			children = (
+				E10801BC45173278FB2D4D02 /* PomodoroActivity.swift */,
+				F7F741E5618F6D98C3CFE15C /* PomodoroTileView.swift */,
+				7641B9360358AB2A12374EC2 /* PomodoroWidget.swift */,
+			);
+			path = Pomodoro;
 			sourceTree = "<group>";
 		};
 		AF615F73C140C84ECA25607F /* Shell */ = {
@@ -588,6 +608,9 @@
 				257EA4EE32C3ED78E884B7C8 /* OpenMeteo.swift in Sources */,
 				D5A95FCE6D1B22D97C7D563D /* PanelController.swift in Sources */,
 				BFF0319D146785051BA01B7F /* PanelRootView.swift in Sources */,
+				EACB4B18105F920F139514B5 /* PomodoroActivity.swift in Sources */,
+				9E9F64E4E27F0A43D84C8C4E /* PomodoroTileView.swift in Sources */,
+				3349C2B4C20F95E7D1C5ADCD /* PomodoroWidget.swift in Sources */,
 				033945BB95DF5555658CACD4 /* RateStore.swift in Sources */,
 				D80DF43353FBD3C2F76782E7 /* ScratchpadTileView.swift in Sources */,
 				B0D182BF8B62ED776E32E642 /* ScratchpadWidget.swift in Sources */,
@@ -607,6 +630,7 @@
 				DA64A434989178E60144F424 /* TasksWidget.swift in Sources */,
 				235308A728D1BBB491E746A7 /* Theme.swift in Sources */,
 				159FCB459D090B2F5C1F891E /* TileControls.swift in Sources */,
+				B3E29C1F5D57B31542FD5F4A /* TileDial.swift in Sources */,
 				92D0CF1E92752FBB4B15F425 /* TileHost.swift in Sources */,
 				28E61BD8B43DE020A983193E /* TileParts.swift in Sources */,
 				504718839B8374906FC61779 /* TileTypography.swift in Sources */,

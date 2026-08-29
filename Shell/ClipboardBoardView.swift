@@ -301,7 +301,14 @@ struct ClipboardBoardView: View {
         // No wrapping past the edge — the cursor stays put. Clamping to bounds
         // instead used to send "down" on the last row sideways into the
         // neighboring column: a vertical arrow moving horizontally
-        guard list.indices.contains(current + step) else { return }
+        guard list.indices.contains(current + step) else {
+            // Except a partial last row: with an odd count, "down" from the
+            // right column used to be unable to reach the lone last card
+            if settings.clipboardCards, delta > 0, current / 2 < (list.count - 1) / 2 {
+                selection.select(list[list.count - 1].id, byKeyboard: true)
+            }
+            return
+        }
         selection.select(list[current + step].id, byKeyboard: true)
     }
 

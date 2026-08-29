@@ -103,6 +103,15 @@ final class LLMClient {
 
     private init() {}
 
+    /// One key per provider, not one for the app: settings show a "Key" field
+    /// for each provider, and a single Keychain record meant entering the
+    /// Anthropic key silently wiped the OpenRouter one
+    nonisolated private static func account(for provider: LLMProvider) -> String {
+        "apiKey.\(provider.rawValue)"
+    }
+    /// Pre-provider-split record; migrated to the current provider at launch
+    nonisolated private static let legacyAccount = "apiKey"
+
     /// One-time "is there a key" check: asked off the main thread. Deferring it
     /// to the next run-loop pass isn't enough — the Keychain blocks whichever
     /// thread asked it, and the panel would freeze along with it.
@@ -112,26 +121,54 @@ final class LLMClient {
     func checkKeyPresence() {
         guard !keyChecked else { return }
         keyChecked = true
-        Task { [secrets] in
-            let value = await secrets.value(for: "apiKey")
+        let provider = AppSettings.shared.llmProvider
+        Task { [weak self] in
+            guard let self else { return }
+            let value = await migratedKey(for: provider)
             hasKey = !(value ?? "").isEmpty
         }
     }
 
-    /// Key changed in settings — the flag needs to see it
-    func keyDidChange() {
-        keyChecked = true
-        hasKey = !(key ?? "").isEmpty
+    /// Migrate the pre-split key to the provider it was working with — the one
+    /// selected in settings. The legacy record is deleted only after the copy
+    /// is confirmed by reading it back: a failed write must not lose the key
+    nonisolated private func migratedKey(for provider: LLMProvider) async -> String? {
+        let account = Self.account(for: provider)
+        if let existing = secrets.get(account) {
+            return existing
+        }
+        guard let legacy = secrets.get(Self.legacyAccount), !legacy.isEmpty else { return nil }
+        secrets.set(account, legacy)
+        if secrets.get(account) == legacy {
+            secrets.delete(Self.legacyAccount)
+        }
+        return legacy
     }
 
-    var key: String? {
-        get { secrets.get("apiKey") }
-        set {
-            if let newValue, !newValue.isEmpty {
-                secrets.set("apiKey", newValue)
-            } else {
-                secrets.remove("apiKey")
-            }
+    /// Key or provider changed in settings — the flag needs to see it.
+    /// Re-read off the main thread, same as the launch check
+    func keyDidChange() {
+        keyChecked = true
+        let provider = AppSettings.shared.llmProvider
+        Task { [weak self] in
+            guard let self else { return }
+            let value = await keyValue(for: provider)
+            hasKey = !(value ?? "").isEmpty
+        }
+    }
+
+    /// All Keychain access is async and off the main actor: a synchronous read
+    /// can pop a password prompt and hold the calling thread — measured at
+    /// 12.7 s of frozen main thread once already
+    nonisolated func keyValue(for provider: LLMProvider) async -> String? {
+        secrets.get(Self.account(for: provider))
+    }
+
+    nonisolated func storeKey(_ value: String?, for provider: LLMProvider) async {
+        if let value, !value.isEmpty {
+            secrets.set(Self.account(for: provider), value)
+        } else {
+            secrets.remove(Self.account(for: provider))
         }
     }
 
@@ -143,7 +180,9 @@ final class LLMClient {
         model: String,
         onDelta: @escaping @MainActor (String) -> Void
     ) async throws {
-        let request = try buildRequest(question, history: history, provider: provider, model: model)
+        let key = provider.needsKey ? await keyValue(for: provider) : nil
+        let request = try buildRequest(
+            question, history: history, provider: provider, model: model, key: key)
         let session = URLSession(configuration: .ephemeral)
 
         let (stream, response): (URLSession.AsyncBytes, URLResponse)
@@ -153,6 +192,11 @@ final class LLMClient {
             throw LLMError.unreachable(provider.hint)
         }
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            // 402 and 429 have dedicated human texts — the raw body must not
+            // preempt them with "Unexpected response: Provider error: …"
+            if http.statusCode == 402 || http.statusCode == 429 {
+                throw LLMError.badAnswer(http.statusCode)
+            }
             // The error body usually says exactly what went wrong
             var body = ""
             for try await line in stream.lines { body += line }
@@ -164,12 +208,20 @@ final class LLMClient {
 
         var got = false
         var raw = ""
-        for try await line in stream.lines {
-            raw += line
-            if let text = Self.delta(from: line, provider: provider) {
-                got = true
-                onDelta(text)
+        do {
+            for try await line in stream.lines {
+                raw += line
+                if let text = Self.delta(from: line, provider: provider) {
+                    got = true
+                    onDelta(text)
+                }
             }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A drop mid-stream is the same "provider unreachable" as a failed
+            // connect — the VPN/Ollama hint used to be lost past the headers
+            throw LLMError.unreachable(provider.hint)
         }
         guard !got else { return }
 
@@ -216,7 +268,7 @@ final class LLMClient {
         var request = URLRequest(url: provider.modelsEndpoint)
         request.timeoutInterval = 15
         if provider.needsKey {
-            guard let key, !key.isEmpty else { throw LLMError.noKey }
+            guard let key = await keyValue(for: provider), !key.isEmpty else { throw LLMError.noKey }
             switch provider {
             case .anthropic:
                 request.setValue(key, forHTTPHeaderField: "x-api-key")
@@ -266,7 +318,8 @@ final class LLMClient {
         _ question: String,
         history: [(role: String, text: String)],
         provider: LLMProvider,
-        model: String
+        model: String,
+        key: String?
     ) throws -> URLRequest {
         var request = URLRequest(url: provider.endpoint)
         request.httpMethod = "POST"

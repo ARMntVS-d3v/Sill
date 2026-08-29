@@ -30,10 +30,23 @@ enum Motion {
     /// How far content lags behind the reveal: the capsule moves first,
     /// text appears inside it once it's already widened
     @MainActor static var islandContentDelay: TimeInterval { 0.08 * filmSlowdown }
+    /// The compact top row returns after a collapse only once the expanded
+    /// row below has faded — any earlier and both icons show at once
+    static let islandRowReturnDelay: TimeInterval = 0.14
+    /// Content swap inside the message capsule ("Drop the file" → "File on
+    /// the shelf"): slightly slower than islandContent so the cross-fade reads
+    static let islandSwap: TimeInterval = 0.16
     /// How long to wait before removing the capsule window: a bit longer
     /// than the spring, otherwise the last frame of the collapse doesn't
     /// get drawn
     @MainActor static var islandCollapse: TimeInterval { 0.42 * filmSlowdown }
+    /// How long after the last change the capsule window shrinks down to the
+    /// capsule itself. The window is deliberately wider and taller so the
+    /// capsule can animate inside it, but those invisible margins still take
+    /// clicks: menu bar icons next to the notch went dead and the strip under
+    /// the menu bar swallowed clicks meant for other apps. Longer than the
+    /// spring, so the shrink never clips a moving capsule
+    @MainActor static var islandFit: TimeInterval { 0.6 * filmSlowdown }
     /// Board strip: the same spring both for settling next to a neighbor and
     /// for springing back. A spring, not easeOut: finger velocity has to
     /// carry into the animation, otherwise releasing causes an abrupt speed
@@ -50,15 +63,17 @@ enum Motion {
     /// Edit-mode shake, like the iOS home screen: period of one wobble.
     /// Amplitudes are in standards.md ("edit mode shake")
     static let jiggle: TimeInterval = 0.13
-    /// Board-dot bobbing in edit mode — four times slower than tile shake:
-    /// at tile frequency the small circle read as vibration, not invitation
-    static let dotBob: TimeInterval = 0.5
     /// Fill: progress bar, metric ring, timer arc
     static let fill: TimeInterval = 0.3
     /// "Ask" conversation expands and collapses
     static let askOpen: TimeInterval = 0.24
     /// Tile content appears after loading
     static let content: TimeInterval = 0.2
+
+    /// How long a transient feedback signal stays visible (the shelf's
+    /// "didn't all fit" warning border). Matches the notch capsule's
+    /// confirmation hold — one duration for "the app answers an action"
+    static let signalHold: TimeInterval = 1.6
 
     /// How long to wait for focus to return to another app before the
     /// synthetic ⌘V. Not an animation — time for the app switch

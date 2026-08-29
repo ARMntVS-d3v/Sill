@@ -48,7 +48,28 @@ final class WeatherWidget: Widget {
     private(set) var failure: String?
 
     func activate() async throws {
+        // No city anywhere yet: take the one the system's time zone names instead
+        // of showing an empty tile. The picker stays available either way
+        if place == nil {
+            if let shared = AppSettings.shared.weatherPlace {
+                adopt(shared)
+            } else if let guess = await OpenMeteo.guessPlace() {
+                // Shared, not just ours: the capsule at the notch reads this one
+                AppSettings.shared.weatherPlace = guess
+                adopt(guess)
+                sillLog("[weather] city guessed from the time zone: \(guess.name)")
+            }
+        }
         await refreshIfStale()
+    }
+
+    /// Take a city that wasn't picked in this tile — the shared one or a guess.
+    /// Not written to the tile's own settings: a tile without a city of its own
+    /// should keep following the shared one
+    private func adopt(_ place: Place) {
+        self.place = place
+        isPickingCity = false
+        failure = nil
     }
 
     /// "Retry" button in the placeholder
@@ -60,6 +81,12 @@ final class WeatherWidget: Widget {
     func deactivate() {
         searchTask?.cancel()
         searchTask = nil
+    }
+
+    /// The snapshot is keyed by tile id in the widget-wide cache — without
+    /// this, every deleted weather tile left its forecast on disk forever
+    func tileWillRemove() {
+        context.cache.remove(context.tileID.uuidString)
     }
 
     func refresh() async throws {
@@ -146,6 +173,9 @@ final class WeatherWidget: Widget {
         // The first city chosen becomes the shared one: the notch island uses it too
         if AppSettings.shared.weatherPlace == nil { AppSettings.shared.weatherPlace = place }
         snapshot = nil
+        // Same reset retry() does: the new city used to open showing the
+        // previous city's error instead of "Loading…"
+        failure = nil
         isPickingCity = false
         query = ""
         results = []
@@ -155,6 +185,8 @@ final class WeatherWidget: Widget {
                 try await refresh()
             } catch {
                 context.log("initial load failed: \(error)")
+                // Otherwise the fresh city sat on "Loading…" forever with no Retry
+                if snapshot == nil { failure = String(localized: "Couldn't load the weather") }
             }
         }
     }

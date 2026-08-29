@@ -10,6 +10,13 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      # The layout rules from docs/standards.md, enforced instead of trusted:
+      # ad-hoc fonts, drifting type sizes, and duration literals are review
+      # errors by the project's own book
+      - name: Standards checks
+        run: |
+          ! grep -rn "\.font(\.system(" Widgets/ Shell/
+          ! grep -rn "minimumScaleFactor" Widgets/
       - name: Install xcodegen
         run: brew install xcodegen
       - name: Generate project

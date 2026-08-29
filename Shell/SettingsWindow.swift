@@ -17,15 +17,35 @@ final class SettingsWindowController {
         self.appState = appState
     }
 
+    /// Above the panel (.popUpMenu = 101) and the notch trap (102) — used only
+    /// while the panel is pinned and stays on screen
+    private static let abovePanelLevel = NSWindow.Level(
+        rawValue: NSWindow.Level.popUpMenu.rawValue + 2)
+
+    /// The panel is opening — an unpinned settings window steps aside. Mirrors the
+    /// rule above (settings opens, panel closes): otherwise settings stayed alive
+    /// behind the panel and "opened by itself" the moment the panel closed. A pinned
+    /// panel keeps settings on top, that's the whole point of pinning
+    func hideForPanel() {
+        guard appState?.pinned != true, let window, window.isVisible else { return }
+        window.orderOut(nil)
+    }
+
     func show() {
         // Settings opens — the panel closes: no need to keep both windows up, and
         // settings only looked like it was overlapping the panel because the
         // panel was covering it. A pinned panel is left alone: pinning means
         // "don't dismiss", and without this check you couldn't pick an
         // appearance while watching the panel — it kept vanishing
-        if appState?.pinned != true { appState?.requestHide?() }
+        let pinnedPanel = appState?.pinned == true
+        if !pinnedPanel { appState?.requestHide?() }
+        // With the panel pinned and staying up, a .normal window opens UNDER
+        // it (0 against 101) — exactly the scenario pinning exists for. The
+        // level is set on every show: pinning changes between opens
+        let level: NSWindow.Level = pinnedPanel ? Self.abovePanelLevel : .normal
 
         if let window {
+            window.level = level
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return
@@ -51,8 +71,9 @@ final class SettingsWindowController {
         window.backgroundColor = NSColor.black
         window.isReleasedWhenClosed = false
         // A normal window, like any app's. No need to float it above the panel:
-        // instead, the panel leaves the screen when settings opens
-        window.level = .normal
+        // instead, the panel leaves the screen when settings opens. The pinned
+        // panel is the exception — see `level` above
+        window.level = level
         // The window follows the person to whatever desktop they're on: without
         // this it stayed on the space where it was created, and looked like
         // "settings won't open"
@@ -68,16 +89,18 @@ final class SettingsWindowController {
 
 struct SettingsRootView: View {
     private enum Section: String, CaseIterable, Identifiable {
-        case general, clipboard, model, currency, notch, appearance
+        case general, boards, clipboard, model, currency, pomodoro, notch, appearance
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: String(localized: "General")
+            case .boards: String(localized: "Boards")
             case .clipboard: String(localized: "Clipboard")
             case .model: String(localized: "Model")
             case .currency: String(localized: "Currencies")
+            case .pomodoro: String(localized: "Pomodoro")
             case .notch: String(localized: "Notch")
             case .appearance: String(localized: "Appearance")
             }
@@ -86,9 +109,11 @@ struct SettingsRootView: View {
         var icon: String {
             switch self {
             case .general: "gearshape"
+            case .boards: "square.grid.2x2"
             case .clipboard: "doc.on.clipboard"
             case .model: "sparkles"
             case .currency: "banknote"
+            case .pomodoro: "leaf"
             case .notch: "rectangle.topthird.inset.filled"
             case .appearance: "paintpalette"
             }
@@ -99,9 +124,11 @@ struct SettingsRootView: View {
         var badge: Color {
             switch self {
             case .general: .gray
+            case .boards: Color(red: 0.25, green: 0.5, blue: 0.9)
             case .clipboard: Color(red: 0.3, green: 0.7, blue: 0.45)
             case .model: Color(red: 0.62, green: 0.36, blue: 0.9)
             case .currency: Color(red: 0.2, green: 0.65, blue: 0.4)
+            case .pomodoro: Color(red: 0.85, green: 0.3, blue: 0.25)
             case .notch: Color(red: 0.55, green: 0.35, blue: 0.9)
             case .appearance: Color(red: 0.95, green: 0.45, blue: 0.2)
             }
@@ -152,9 +179,11 @@ struct SettingsRootView: View {
                 Group {
                     switch selection {
                     case .general: GeneralSettings()
+                    case .boards: BoardSettings()
                     case .clipboard: ClipboardSettings()
                     case .model: ModelSettings()
                     case .currency: CurrencySettings()
+                    case .pomodoro: PomodoroSettings()
                     case .notch: NotchSettings()
                     case .appearance: AppearanceSettings()
                     }
@@ -252,6 +281,11 @@ private struct SidebarRow: View {
 // different windows
 enum SettingsMetrics {
     static let field: CGFloat = 220
+    /// One width for every menu picker: sized-to-content pickers gave a
+    /// ragged right column, 120…220 depending on the longest item
+    static let picker: CGFloat = 180
+    /// Segmented control (base currency) — three segments need more room
+    static let segmented: CGFloat = 210
 }
 
 // Settings section header: same voice as tile labels
@@ -356,11 +390,20 @@ private struct GeneralSettings: View {
         } else {
             defaults.set([language], forKey: "AppleLanguages")
         }
+        // Relaunch through a short sleep so the new instance starts after this
+        // one is gone — `open -n` in parallel briefly ran two copies against
+        // one config. And quit only if the relauncher actually started: with
+        // the error swallowed, a failed `open` just made the app vanish
+        let escapedPath = Bundle.main.bundlePath.replacingOccurrences(of: "'", with: "'\\''")
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-n", Bundle.main.bundlePath]
-        try? process.run()
-        NSApp.terminate(nil)
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 0.5; /usr/bin/open -n '\(escapedPath)'"]
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            sillLog("[settings] language relaunch failed: \(error)")
+        }
     }
 
     var body: some View {
@@ -387,7 +430,7 @@ private struct GeneralSettings: View {
                         Text(verbatim: "Русский").tag("ru")
                     }
                     .labelsHidden()
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                     .onChange(of: language) { _, _ in applyLanguage() }
                 }
             }
@@ -429,16 +472,22 @@ struct CurrencySettings: View {
 
     private var all: [CurrencyWidget.Rate] { sample.isEmpty ? available : sample }
 
-    /// Rubles per unit of the base currency — rates in the rows are shown in it
-    private var baseUnit: Double {
-        guard settings.baseCurrency != "RUB" else { return 1 }
-        return all.first { $0.code == settings.baseCurrency }?.perUnit ?? 1
+    /// Which base a row is priced in: coins in theirs, currencies in theirs
+    private func base(of rate: CurrencyWidget.Rate) -> String {
+        rate.kind == .crypto ? settings.cryptoBase : settings.baseCurrency
+    }
+
+    /// Rubles per unit of that base — rates in the rows are divided by it
+    private func unit(of code: String) -> Double {
+        guard code != "RUB" else { return 1 }
+        return all.first { $0.code == code }?.perUnit ?? 1
     }
 
     private func shown(_ rate: CurrencyWidget.Rate) -> CurrencyWidget.Rate {
-        guard baseUnit != 1 else { return rate }
+        let unit = unit(of: base(of: rate))
+        guard unit != 1 else { return rate }
         var copy = rate
-        copy.value = rate.perUnit / baseUnit
+        copy.value = rate.perUnit / unit
         copy.nominal = 1
         return copy
     }
@@ -446,28 +495,26 @@ struct CurrencySettings: View {
         sampleChosen.isEmpty ? settings.currencies : sampleChosen
     }
 
-    /// What we suggest adding: matches the query and isn't added yet
+    /// What we suggest adding: matches the query and isn't added yet. The base
+    /// currency stays in the list — hidden, it looked like "euro isn't there at all"
+    /// when the base was the euro; it's shown as a row that says so instead
     private var found: [CurrencyWidget.Rate] {
-        let text = query.trimmingCharacters(in: .whitespaces).lowercased()
-        var taken = Set(chosen.map(\.code))
-        taken.insert(settings.baseCurrency)
-        guard !text.isEmpty else { return [] }
+        let taken = Set(chosen.map(\.code))
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         return Array(
             all.filter { !taken.contains($0.code) }
-                .filter {
-                    $0.code.lowercased().hasPrefix(text) || $0.name.lowercased().contains(text)
-                }
+                .filter { CurrencyWidget.matches($0, query: query) }
                 .prefix(6))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSection(
-                title: String(localized: "base currency"),
+                title: String(localized: "shown in"),
                 footer: String(
-                    localized: "Everything else is calculated in it. The central bank rate comes in rubles; dollar and euro are converted through it")
+                    localized: "Currencies and coins can be shown in different ones: the central bank rate comes in rubles, coins are quoted in dollars")
             ) {
-                SettingsRow(title: String(localized: "Show in"), last: true) {
+                SettingsRow(title: String(localized: "Currencies in")) {
                     Picker("", selection: $settings.baseCurrency) {
                         ForEach(CurrencyWidget.baseOptions, id: \.0) { option in
                             Text(option.1).tag(option.0)
@@ -475,7 +522,19 @@ struct CurrencySettings: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 210)
+                    .frame(width: SettingsMetrics.segmented)
+                }
+                // Coins get their own base: the world quotes crypto in dollars,
+                // while the Central Bank rate arrives in rubles
+                SettingsRow(title: String(localized: "Coins in"), last: true) {
+                    Picker("", selection: $settings.cryptoBase) {
+                        ForEach(CurrencyWidget.baseOptions, id: \.0) { option in
+                            Text(option.1).tag(option.0)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.segmented)
                 }
             }
 
@@ -487,7 +546,11 @@ struct CurrencySettings: View {
                 SearchRow(
                     text: $query, placeholder: String(localized: "Dollar, lari, BTC…"), last: found.isEmpty)
                 ForEach(Array(found.enumerated()), id: \.element.id) { index, rate in
-                    FoundRow(rate: shown(rate), base: settings.baseCurrency, last: index == found.count - 1) {
+                    FoundRow(
+                        rate: shown(rate), base: base(of: rate),
+                        isBase: rate.code == settings.baseCurrency,
+                        last: index == found.count - 1
+                    ) {
                         settings.currencies.append(
                             CurrencyChoice(code: rate.code, isCrypto: rate.kind == .crypto))
                         query = ""
@@ -510,7 +573,7 @@ struct CurrencySettings: View {
                         choice: choice,
                         name: name(of: choice),
                         rate: all.first { $0.code == choice.code }.map(shown),
-                        base: settings.baseCurrency,
+                        base: choice.isCrypto ? settings.cryptoBase : settings.baseCurrency,
                         canMoveUp: index > 0,
                         last: index == chosen.count - 1,
                         onUp: { settings.currencies.swapAt(index, index - 1) },
@@ -533,7 +596,7 @@ struct CurrencySettings: View {
     }
 
     private func name(of choice: CurrencyChoice) -> String {
-        all.first { $0.code == choice.code }?.name ?? ""
+        all.first { $0.code == choice.code }?.title ?? ""
     }
 
     private func load() async {
@@ -552,6 +615,163 @@ struct CurrencySettings: View {
             note = (note.map { $0 + "; " } ?? "") + String(localized: "Couldn't fetch the coin list")
         }
         available = loaded
+    }
+}
+
+// Pomodoro: how long the work stretch is and how long the break. Shared by every
+// pomodoro tile — one person has one rhythm, not one per tile
+struct PomodoroSettings: View {
+    @State private var settings = AppSettings.shared
+    @Environment(\.theme) private var theme
+
+    /// Round numbers only: a pomodoro is a habit, not a stopwatch, and a free-form
+    /// field would only invite fiddling with 23 versus 24 minutes
+    private static let workOptions = [15, 20, 25, 30, 35, 40, 45, 50, 60, 90]
+    private static let restOptions = [3, 5, 7, 10, 15, 20, 30]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsSection(
+                title: String(localized: "lengths"),
+                footer: String(
+                    localized: "The phase changes on its own and says so at the notch, even with the panel closed")
+            ) {
+                SettingsRow(title: String(localized: "Focus")) {
+                    Picker("", selection: $settings.pomodoroWork) {
+                        ForEach(Self.workOptions, id: \.self) { minutes in
+                            Text(String(localized: "\(minutes) min")).tag(minutes)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
+                }
+                SettingsRow(title: String(localized: "Break")) {
+                    Picker("", selection: $settings.pomodoroRest) {
+                        ForEach(Self.restOptions, id: \.self) { minutes in
+                            Text(String(localized: "\(minutes) min")).tag(minutes)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
+                }
+                SettingsRow(
+                    title: String(localized: "Show at the notch"),
+                    subtitle: String(localized: "The phase left, in the capsule by the cutout"),
+                    last: true
+                ) {
+                    Toggle("", isOn: $settings.pomodoroInNotch).controlSize(.small)
+                }
+            }
+        }
+    }
+}
+
+// Boards: the list, in the order the dots stand in the wing. Deleting a board used
+// to live only in the dot's context menu — invisible, and on Macs with a menu bar
+// manager (Bartender, Thaw) the right-click never reaches us at all.
+struct BoardSettings: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsSection(
+                title: String(localized: "boards"),
+                footer: String(
+                    localized: "The order here is the order of the dots in the wing and the order swiping pages through them")
+            ) {
+                ForEach(Array(appState.config.boards.enumerated()), id: \.element.id) { index, board in
+                    BoardRow(
+                        board: board,
+                        canMoveUp: index > 0,
+                        // The clipboard board isn't deleted here: it comes and goes
+                        // with "Keep clipboard history" in the Clipboard section
+                        canRemove: appState.config.boards.count > 1 && board.kind != .clipboard,
+                        last: index == appState.config.boards.count - 1,
+                        onRename: { appState.renameBoard(board.id, to: $0) },
+                        onUp: { appState.moveBoard(board.id, by: -1) },
+                        onRemove: { appState.removeBoard(board.id) })
+                }
+            }
+        }
+    }
+}
+
+private struct BoardRow: View {
+    let board: Board
+    let canMoveUp: Bool
+    let canRemove: Bool
+    var last = false
+    let onRename: (String) -> Void
+    let onUp: () -> Void
+    let onRemove: () -> Void
+
+    @Environment(\.theme) private var theme
+    @State private var hovered = false
+    @State private var name = ""
+    @FocusState private var editing: Bool
+
+    private func commit() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != board.name else {
+            name = board.name  // empty or unchanged — put the old name back
+            return
+        }
+        onRename(trimmed)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                // The clipboard board's name is the app's, not the person's: it
+                // appears and disappears with the setting
+                if board.kind == .clipboard {
+                    Text(board.name)
+                        .font(TileFont.row)
+                        .foregroundStyle(theme.textPrimary.color)
+                        .lineLimit(1)
+                } else {
+                    // Renaming right here, no dialog: the whole rename window
+                    // exists only because there was nowhere else to type
+                    TextField("", text: $name)
+                        .textFieldStyle(.plain)
+                        .font(TileFont.row)
+                        .foregroundStyle(theme.textPrimary.color)
+                        .focused($editing)
+                        // Committed on Return and when focus leaves, never per
+                        // keystroke: renaming on every letter wrote the config
+                        // twenty times and filled the undo stack with one rename
+                        .onSubmit { commit() }
+                        .onChange(of: editing) { _, focused in
+                            if !focused { commit() }
+                        }
+                }
+                Spacer(minLength: 12)
+                Text(subtitle)
+                    .font(TileFont.caption)
+                    .foregroundStyle(theme.textMuted.color)
+                RowButton(icon: "arrow.up", active: hovered && canMoveUp, action: onUp)
+                    .disabled(!canMoveUp)
+                    .opacity(canMoveUp ? 1 : 0.25)
+                RowButton(icon: "minus", active: hovered, action: onRemove)
+                    .disabled(!canRemove)
+                    .opacity(canRemove ? 1 : 0.25)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(hovered ? theme.tileHover.color : .clear)
+            .onHover { hovered = $0 }
+
+            if !last { RowDivider() }
+        }
+        .onAppear { name = board.name }
+    }
+
+    private var subtitle: String {
+        board.kind == .clipboard
+            ? String(localized: "follows the clipboard setting")
+            : String(localized: "\(board.tiles.count) widgets")
     }
 }
 
@@ -609,6 +829,9 @@ private struct SearchRow: View {
 private struct FoundRow: View {
     let rate: CurrencyWidget.Rate
     var base = "RUB"
+    /// This is the base currency: it can't be added (its rate against itself is 1),
+    /// but it must be visible — searching for it and finding nothing read as a bug
+    var isBase = false
     var last = false
     let onAdd: () -> Void
 
@@ -619,25 +842,31 @@ private struct FoundRow: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 CodeLabel(code: rate.code)
-                Text(rate.name)
+                Text(rate.title)
                     .font(TileFont.row)
-                    .foregroundStyle(theme.textPrimary.color)
+                    .foregroundStyle(isBase ? theme.textMuted.color : theme.textPrimary.color)
                     .lineLimit(1)
                 if rate.kind == .crypto { KindTag() }
                 Spacer(minLength: 12)
-                PriceLabel(rate: rate, base: base)
-                Image(systemName: "plus")
-                    .font(TileIcon.caption)
-                    .foregroundStyle(theme.accent.color)
-                    .frame(width: 20, alignment: .trailing)
+                if isBase {
+                    Text("base")
+                        .font(TileFont.caption)
+                        .foregroundStyle(theme.textMuted.color)
+                } else {
+                    PriceLabel(rate: rate, base: base)
+                    Image(systemName: "plus")
+                        .font(TileIcon.caption)
+                        .foregroundStyle(theme.accent.color)
+                        .frame(width: 20, alignment: .trailing)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             // The whole row highlights, not a chunk inside it: the card is
             // already rounded, and a second rounded rect inside it looks like a sticker
-            .background(hovered ? theme.tileHover.color : .clear)
+            .background(hovered && !isBase ? theme.tileHover.color : .clear)
             .contentShape(Rectangle())
-            .onTapGesture(perform: onAdd)
+            .onTapGesture { if !isBase { onAdd() } }
             .onHover { hovered = $0 }
 
             if !last { RowDivider() }
@@ -759,7 +988,9 @@ private struct PlaceRow: View {
     let place: Place
     let selected: Bool
     var last = false
-    let onPick: () -> Void
+    /// No action means the row only reports the state — the chosen city under the
+    /// search field. Such a row doesn't highlight on hover: there is nothing to click
+    var onPick: (() -> Void)?
 
     @Environment(\.theme) private var theme
     @State private var hovered = false
@@ -784,9 +1015,9 @@ private struct PlaceRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(hovered ? theme.tileHover.color : .clear)
+            .background(hovered && onPick != nil ? theme.tileHover.color : .clear)
             .contentShape(Rectangle())
-            .onTapGesture(perform: onPick)
+            .onTapGesture { onPick?() }
             .onHover { hovered = $0 }
 
             if !last { RowDivider() }
@@ -823,18 +1054,24 @@ private struct RowButton: View {
     }
 }
 
-private struct NotchSettings: View {
+struct NotchSettings: View {
     @State private var settings = AppSettings.shared
     @State private var query = ""
     @State private var results: [Place] = []
     @State private var searching = false
+    @State private var searchFailed = false
 
     // Media keys arrive as system events, and catching them from another app
-    // requires Universal Control access
+    // requires Accessibility access — that is the name of the permission in
+    // System Settings. "Universal Control" is a different macOS feature entirely
     private var mediaKeysSubtitle: String {
-        MediaKeys.isAvailable
-            ? String(localized: "A track paused with the key shows up at the notch")
-            : String(localized: "Needs Universal Control access — otherwise the capsule won't expand")
+        if MediaKeys.isAvailable {
+            return String(localized: "A track paused with the key shows up at the notch")
+        }
+        // Asked once already — the prompt won't come back, only Settings will do
+        return MediaKeys.didAsk
+            ? String(localized: "Access denied. Allow Sill under Privacy & Security → Accessibility")
+            : String(localized: "Needs Accessibility access — otherwise the capsule won't expand")
     }
 
     var body: some View {
@@ -853,6 +1090,9 @@ private struct NotchSettings: View {
                 ) {
                     if MediaKeys.isAvailable {
                         ValueText(String(localized: "working"))
+                    } else if MediaKeys.didAsk {
+                        // The prompt is a one-shot: after it, only Settings can grant it
+                        Button("Open Settings") { MediaKeys.openSettings() }
                     } else {
                         Button("Allow") { MediaKeys.requestAccess() }
                     }
@@ -879,7 +1119,7 @@ private struct NotchSettings: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                 }
             }
 
@@ -902,6 +1142,13 @@ private struct NotchSettings: View {
                         text: String(localized: "Loading…"),
                         last: results.isEmpty && settings.weatherPlace == nil)
                 }
+                // Same distinction the weather tile draws: a network failure
+                // is not "nothing found"
+                if searchFailed, !searching {
+                    StatusRow(
+                        text: String(localized: "Search failed"),
+                        last: results.isEmpty && settings.weatherPlace == nil)
+                }
                 ForEach(Array(results.enumerated()), id: \.element.id) { index, place in
                     PlaceRow(
                         place: place,
@@ -913,21 +1160,32 @@ private struct NotchSettings: View {
                         query = ""
                     }
                 }
+                // The chosen city is shown as the same row as the search results,
+                // with a checkmark — a "Selected — Munich" key-value row didn't read
+                // as "this is your city"
                 if let place = settings.weatherPlace, results.isEmpty {
-                    SettingsRow(title: String(localized: "Selected"), last: true) { ValueText(place.name) }
+                    PlaceRow(place: place, selected: true, last: true)
                 }
             }
         }
+        // No city chosen anywhere — offer the one the time zone names, so the
+        // capsule has something to show even without a weather tile on a board
+        .task { settings.ensureWeatherPlace() }
     }
 
     private func search() {
         let text = query.trimmingCharacters(in: .whitespaces)
         guard text.count >= 2 else { return }
         searching = true
+        searchFailed = false
         Task {
-            let found = (try? await OpenMeteo.search(city: text)) ?? []
+            do {
+                results = try await OpenMeteo.search(city: text)
+            } catch {
+                results = []
+                searchFailed = true
+            }
             searching = false
-            results = found
         }
     }
 }
@@ -945,7 +1203,7 @@ private struct AppearanceSettings: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                 }
             }
 
@@ -957,7 +1215,7 @@ private struct AppearanceSettings: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                 }
                 SettingsRow(title: String(localized: "Panel edge")) {
                     Picker("", selection: edgeBinding) {
@@ -966,7 +1224,7 @@ private struct AppearanceSettings: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                 }
                 SettingsRow(title: String(localized: "Tile style"), last: true) {
                     Picker("", selection: tileBinding) {
@@ -975,7 +1233,7 @@ private struct AppearanceSettings: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                 }
             }
         }
@@ -1046,7 +1304,7 @@ private struct ClipboardSettings: View {
                         Text("never").tag(0)
                     }
                     .labelsHidden()
-                    .fixedSize()
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
                 }
             }
 
@@ -1109,6 +1367,14 @@ private struct HotkeyField: View {
                 .buttonStyle(.plain)
                 .help("Remove shortcut")
             }
+
+            // Registration can be refused (combo taken by another app) — the
+            // field must not show a shortcut that silently doesn't work
+            if combo != nil, !recording, GlobalHotkey.shared.failed {
+                Text("Taken by another app")
+                    .font(TileFont.caption)
+                    .foregroundStyle(theme.warning.color)
+            }
         }
         .onDisappear(perform: stop)
     }
@@ -1154,7 +1420,10 @@ private final class RecorderKeys {
 // Model: provider, key, and a choice of model from what that key unlocks
 private struct ModelSettings: View {
     @State private var settings = AppSettings.shared
-    @State private var key = LLMClient.shared.key ?? ""
+    /// Loaded asynchronously in .task — a synchronous Keychain read at view
+    /// creation is the same class of main-thread freeze already fixed for the
+    /// "Ask" bar (12.7 s measured)
+    @State private var key = ""
     @State private var models: [LLMClient.Model] = []
     @State private var loading = false
     @State private var note: String?
@@ -1181,8 +1450,8 @@ private struct ModelSettings: View {
                         }
                     }
                     .labelsHidden()
-                    .fixedSize()
-                    .onChange(of: settings.llmProvider) { _, _ in reload() }
+                    .frame(width: SettingsMetrics.picker, alignment: .trailing)
+                    .onChange(of: settings.llmProvider) { old, _ in providerChanged(from: old) }
                 }
                 if settings.llmProvider.needsKey {
                     SettingsRow(title: String(localized: "Key")) {
@@ -1228,7 +1497,10 @@ private struct ModelSettings: View {
                 }
             }
         }
-        .onAppear(perform: reload)
+        .task {
+            key = await LLMClient.shared.keyValue(for: settings.llmProvider) ?? ""
+            reload()
+        }
         .onDisappear(perform: save)
     }
 
@@ -1237,18 +1509,44 @@ private struct ModelSettings: View {
     private func scheduleSave() {
         saveTask?.cancel()
         let value = key
+        // Pin the provider at typing time: if the person switches provider
+        // before the debounce fires, the key must still land under the
+        // provider it was typed for
+        let provider = settings.llmProvider
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            LLMClient.shared.key = value
+            await LLMClient.shared.storeKey(value, for: provider)
             LLMClient.shared.keyDidChange()
         }
     }
 
     private func save() {
         saveTask?.cancel()
-        LLMClient.shared.key = key
-        LLMClient.shared.keyDidChange()
+        let value = key
+        let provider = settings.llmProvider
+        Task {
+            await LLMClient.shared.storeKey(value, for: provider)
+            LLMClient.shared.keyDidChange()
+        }
+    }
+
+    /// Keys are per provider: flush the typed key under the provider it
+    /// belongs to, then show the new provider's own key in the field
+    private func providerChanged(from old: LLMProvider) {
+        let typed = key
+        let hadPendingSave = saveTask != nil
+        saveTask?.cancel()
+        saveTask = nil
+        key = ""
+        Task {
+            if hadPendingSave {
+                await LLMClient.shared.storeKey(typed, for: old)
+            }
+            key = await LLMClient.shared.keyValue(for: settings.llmProvider) ?? ""
+            LLMClient.shared.keyDidChange()
+            reload()
+        }
     }
 
     /// The model list comes straight from the provider — keeping our own copy

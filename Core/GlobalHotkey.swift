@@ -5,9 +5,13 @@ import Carbon.HIToolbox
 // NSEvent global monitor: a monitor requires Accessibility access, Carbon needs
 // none. Requesting permission to read every keystroke just to open a panel
 // would be excessive.
-@MainActor
+@MainActor @Observable
 final class GlobalHotkey {
     static let shared = GlobalHotkey()
+
+    /// Registration refused — the combo is taken by another app. Settings read
+    /// this: a log line alone left the field showing the shortcut as if it worked
+    private(set) var failed = false
 
     struct Combo: Codable, Equatable, Sendable {
         var keyCode: UInt32
@@ -40,16 +44,17 @@ final class GlobalHotkey {
         }
     }
 
-    var onFire: (() -> Void)?
+    @ObservationIgnored var onFire: (() -> Void)?
 
-    private var hotKey: EventHotKeyRef?
-    private var handler: EventHandlerRef?
+    @ObservationIgnored private var hotKey: EventHotKeyRef?
+    @ObservationIgnored private var handler: EventHandlerRef?
     private static let signature = OSType(0x53494C4C)  // 'SILL'
 
     private init() {}
 
     func apply(_ combo: Combo?) {
         unregister()
+        failed = false
         guard let combo else { return }
         installHandlerIfNeeded()
 
@@ -61,6 +66,7 @@ final class GlobalHotkey {
         if status == noErr {
             hotKey = ref
         } else {
+            failed = true
             sillLog("[hotkey] registration failed, code \(status) — combo taken by another app")
         }
     }

@@ -147,8 +147,13 @@ final class ShelfWidget: Widget {
                 Task { [weak self] in
                     // nonisolated async — runs off the main actor
                     guard await Self.performCopy(from: url, to: target) else { return }
-                    guard let self, let index = items.firstIndex(where: { $0.id == id })
-                    else { return }
+                    guard let self, let index = items.firstIndex(where: { $0.id == id }) else {
+                        // Taken off the shelf while the copy was in flight —
+                        // the finished copy belongs to nobody, delete it
+                        try? FileManager.default.removeItem(
+                            at: target.deletingLastPathComponent())
+                        return
+                    }
                     items[index].path = target.path
                     items[index].bookmark = nil
                     persist()
@@ -173,6 +178,12 @@ final class ShelfWidget: Widget {
         for item in items { Self.dropCopy(of: item) }
         items.removeAll()
         persist()
+    }
+
+    /// Tile removed — the copies must go with it: a shelf tile holding a
+    /// gigabyte of copies would otherwise never give the space back
+    func tileWillRemove() {
+        for item in items { Self.dropCopy(of: item) }
     }
 
     // MARK: - our own copy of the file
@@ -201,11 +212,34 @@ final class ShelfWidget: Widget {
         }
     }
 
-    /// Removed from the shelf — the copy is deleted too, or the folder grows silently
+    /// Launch sweep: a box on disk must belong to an item of a live shelf
+    /// tile. Anything else is a leftover — a tile deleted before cleanup
+    /// existed, or a copy that finished after its tile was removed
+    static func purgeOrphanCopies(aliveTiles: [UUID]) {
+        let referenced = Set(
+            aliveTiles.flatMap { tileID -> [String] in
+                let settings = WidgetSettings(widgetID: descriptor.id, tileID: tileID)
+                return (settings.get("items", as: [Item].self) ?? []).map(\.id.uuidString)
+            })
+        let boxes =
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: nil)) ?? []
+        var removed = 0
+        for box in boxes
+        where UUID(uuidString: box.lastPathComponent) != nil
+            && !referenced.contains(box.lastPathComponent) {
+            try? FileManager.default.removeItem(at: box)
+            removed += 1
+        }
+        if removed > 0 { sillLog("[shelf] purged \(removed) orphaned file copies") }
+    }
+
+    /// Removed from the shelf — the copy is deleted too, or the folder grows
+    /// silently. The box goes by id regardless of where `path` points:
+    /// mid-copy the item still points at the original, and checking the path
+    /// let the box survive removal
     private static func dropCopy(of item: Item) {
-        let box = directory.appending(path: item.id.uuidString)
-        guard item.path.hasPrefix(box.path) else { return }
-        try? FileManager.default.removeItem(at: box)
+        try? FileManager.default.removeItem(at: directory.appending(path: item.id.uuidString))
     }
 
     private func persist() { context.settings.set("items", items) }

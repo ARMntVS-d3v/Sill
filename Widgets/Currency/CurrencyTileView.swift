@@ -13,7 +13,9 @@ struct CurrencyTileView: View {
 
     var body: some View {
         Group {
-            if widget.snapshot == nil {
+            // The placeholder also covers "snapshot exists but holds nothing to
+            // show" — only coins chosen and none loaded left a tile with just a date
+            if widget.snapshot == nil || widget.rates(limit: 1).isEmpty {
                 VStack(spacing: TileMetrics.rowGap) {
                     TilePlaceholder(widget.failure ?? String(localized: "Loading…"), icon: "banknote")
                         .fixedSize(horizontal: false, vertical: true)
@@ -45,7 +47,7 @@ struct CurrencyTileView: View {
         VStack(alignment: .leading, spacing: 0) {
             TileLabel(dateText)
             if let rate = widget.rates(limit: 1).first {
-                Text(CurrencyWidget.money(rate.perUnit * widget.amount, base: widget.base))
+                Text(CurrencyWidget.money(rate.perUnit * widget.amount, base: widget.base(for: rate)))
                     .font(TileFont.hero)
                     .monospacedDigit()
                     .foregroundStyle(theme.textPrimary.color)
@@ -61,7 +63,7 @@ struct CurrencyTileView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    // MARK: - Medium: three currencies as rows
+    // MARK: - Medium: four currencies as rows
 
     private var medium: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -71,14 +73,26 @@ struct CurrencyTileView: View {
                 amountField
             }
             Spacer(minLength: 6)
-            VStack(spacing: TileMetrics.rowGap) {
-                ForEach(widget.rates(limit: 3)) { rate in
-                    RateRow(rate: rate, amount: widget.amount, base: widget.base)
-                }
+            // Four rows, tightening the step if that's what it takes — and dropping
+            // to three only if even the dense step doesn't fit (a longer locale,
+            // a larger system font). The layout decides, not a number picked by hand
+            ViewThatFits(in: .vertical) {
+                rows(4, gap: TileMetrics.rowGap)
+                rows(4, gap: TileMetrics.meterGap)
+                rows(4, gap: TileMetrics.meterGapDense)
+                rows(3, gap: TileMetrics.rowGap)
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func rows(_ count: Int, gap: CGFloat) -> some View {
+        VStack(spacing: gap) {
+            ForEach(widget.rates(limit: count)) { rate in
+                RateRow(rate: rate, amount: widget.amount, base: widget.base(for: rate))
+            }
+        }
     }
 
     // MARK: - Large: own currencies plus the rest
@@ -96,7 +110,9 @@ struct CurrencyTileView: View {
             // like a different widget
             VStack(spacing: TileMetrics.rowGap) {
                 ForEach(widget.rates(limit: 7)) { rate in
-                    RateRow(rate: rate, amount: widget.amount, base: widget.base, showsName: true)
+                    RateRow(
+                        rate: rate, amount: widget.amount, base: widget.base(for: rate),
+                        showsName: true)
                 }
             }
             .padding(.top, TileMetrics.blockGap)
@@ -148,6 +164,10 @@ struct CurrencyTileView: View {
         let normalized = draft.replacingOccurrences(of: ",", with: ".")
         if let value = Double(normalized), value > 0 {
             widget.setAmount(value)
+        } else if !draft.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Rejected input keeps the field open: closing on it looked as if
+            // the number had been accepted. Empty input is a cancel
+            return
         }
         editing = false
     }
@@ -182,7 +202,7 @@ private struct RateRow: View {
                 .frame(width: compact ? 34 : 40, alignment: .leading)
 
             if showsName {
-                Text(rate.name)
+                Text(rate.title)
                     .font(TileFont.caption)
                     .foregroundStyle(theme.textMuted.color)
                     .lineLimit(1)

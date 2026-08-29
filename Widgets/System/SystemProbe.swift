@@ -30,7 +30,9 @@ enum SystemProbe {
         var boot = timeval()
         var size = MemoryLayout<timeval>.size
         guard sysctlbyname("kern.boottime", &boot, &size, nil, 0) == 0 else { return 0 }
-        return Date().timeIntervalSince1970 - Double(boot.tv_sec)
+        // Clamped: setting the system clock backwards put the boot moment in
+        // the future, and the tile printed "-1m"
+        return max(Date().timeIntervalSince1970 - Double(boot.tv_sec), 0)
     }
 
     // MARK: - CPU
@@ -309,8 +311,16 @@ enum SystemProbe {
         task.standardError = FileHandle.nullDevice
         guard (try? task.run()) != nil else { return [] }
 
+        // system_profiler can hang, and a hung run used to stop device polling
+        // for good — the task slot never cleared. Kill it after a deadline:
+        // its death gives the read below its EOF. By pid, not the Process
+        // object — the object isn't Sendable
+        let pid = task.processIdentifier
+        let deadline = DispatchWorkItem { kill(pid, SIGTERM) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: deadline)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         task.waitUntilExit()
+        deadline.cancel()
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sections = json["SPBluetoothDataType"] as? [[String: Any]]
         else { return [] }
@@ -334,20 +344,26 @@ enum SystemProbe {
                     let main = percent(info["device_batteryLevelMain"])
 
                     // Headphones and the case charge separately and drain at
-                    // different rates, so these are two entries, not one with a caption
+                    // different rates, so these are two entries, not one with a
+                    // caption. The case is reported whenever the device itself
+                    // is: the single-ear branch used to drop the case level
+                    let ears: Int?
+                    let detail: String?
                     if let left, let right {
-                        result.append(
-                            .init(
-                                name: name, icon: icon, percent: min(left, right),
-                                detail: left == right ? nil : "\(left)% / \(right)%"))
+                        ears = min(left, right)
+                        detail = left == right ? nil : "\(left)% / \(right)%"
+                    } else {
+                        ears = main ?? left ?? right
+                        detail = nil
+                    }
+                    if let ears {
+                        result.append(.init(name: name, icon: icon, percent: ears, detail: detail))
                         if let caseLevel {
                             result.append(
                                 .init(
                                     name: String(localized: "Case"), icon: "airpodspro.chargingcase.wireless",
                                     percent: caseLevel, detail: nil))
                         }
-                    } else if let single = main ?? left ?? right {
-                        result.append(.init(name: name, icon: icon, percent: single, detail: nil))
                     } else if let caseLevel {
                         result.append(
                             .init(

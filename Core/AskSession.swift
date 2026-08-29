@@ -151,8 +151,10 @@ final class AskSession {
     }
 
     private func persist() {
-        messages = Array(messages.suffix(Self.keepLimit))
-        guard let data = try? JSONEncoder().encode(messages) else { return }
+        // Only the stored copy is trimmed. Trimming `messages` itself cut the
+        // beginning off a conversation that was open on screen
+        let kept = Array(messages.suffix(Self.keepLimit))
+        guard let data = try? JSONEncoder().encode(kept) else { return }
         store.set(data, forKey: key)
     }
 }

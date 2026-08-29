@@ -35,6 +35,19 @@ struct LiveActivity: Equatable, Identifiable {
     var expanded = false
 }
 
+// When a seconds label next changes. The value on the capsule is computed from a
+// timestamp and the label is rounded, so it flips on its own phase — half a second
+// off the wall clock. Polling twice a second showed the digits late and unevenly;
+// waking exactly at the flip is both smoother and cheaper.
+enum CountingLabel {
+    static func nextChange(value: TimeInterval, countingDown: Bool) -> TimeInterval {
+        let shown = value.rounded()
+        let delay = countingDown ? value - (shown - 0.5) : (shown + 0.5) - value
+        // Never spin, never sleep past a second: the label can't hold longer than that
+        return min(max(delay, 0.05), 1)
+    }
+}
+
 // Capsule presentation state: the controller sets a flag, the view plays the
 // animation, and only then does the window leave the screen. Without this the
 // disappearance was instant — on the iPhone the capsule retracts into the notch,
@@ -57,6 +70,10 @@ final class IslandPresentation {
     /// Current height: in the expanded view the capsule is taller, and clicks
     /// need to be captured accordingly
     @ObservationIgnored var capsuleHeight: CGFloat = 0
+    /// The capsule was measured. The window listens: it is bigger than the capsule
+    /// so the motion has room, and once the motion settles it shrinks down to it —
+    /// invisible margins over the menu bar still swallow clicks
+    @ObservationIgnored var onCapsuleSize: ((CGSize) -> Void)?
     private init() {}
 }
 

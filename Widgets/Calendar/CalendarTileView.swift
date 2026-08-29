@@ -417,6 +417,14 @@ private struct DayTimeline: View {
 
     private func position(of date: Date) -> Double {
         let calendar = Calendar.current
+        // Hour and minute alone put a moment from another day at today's
+        // wall-clock hour: an event started yesterday at 23:00 and still
+        // running drew as a stub at the scale's end. Off-today clamps to the edge
+        let todayStart = calendar.startOfDay(for: Date())
+        if date < todayStart { return 0 }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: todayStart), date >= tomorrow {
+            return 1
+        }
         let hour = Double(calendar.component(.hour, from: date))
             + Double(calendar.component(.minute, from: date)) / 60
         return min(max((hour - dayStart) / (dayEnd - dayStart), 0), 1)

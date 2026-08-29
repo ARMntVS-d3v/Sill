@@ -40,6 +40,25 @@ final class AppSettings {
         didSet { storeJSON(weatherPlace, "settings.weatherPlace") }
     }
 
+    /// Nobody has picked a city yet — take the one the time zone names. Asked for
+    /// by whoever needs weather (a tile waking up, the settings section opening),
+    /// never at launch: a person who doesn't use weather shouldn't pay for a request
+    @ObservationIgnored private var guessingPlace = false
+
+    func ensureWeatherPlace() {
+        guard weatherPlace == nil, !guessingPlace else { return }
+        guessingPlace = true
+        Task { [weak self] in
+            let guess = await OpenMeteo.guessPlace()
+            guard let self else { return }
+            guessingPlace = false
+            // Someone picked a city while we were asking — their choice wins
+            guard weatherPlace == nil, let guess else { return }
+            weatherPlace = guess
+            sillLog("[weather] city guessed from the time zone: \(guess.name)")
+        }
+    }
+
     /// What the currency tile shows — a single ordered list mixing currencies and
     /// coins in the order they were added. Order matters: a square fits one row,
     /// a rectangle fits three. The choice is app-wide
@@ -51,6 +70,13 @@ final class AppSettings {
     /// rubles, everything else is converted through it
     var baseCurrency: String {
         didSet { store(baseCurrency, "settings.baseCurrency") }
+    }
+
+    /// Coins have a base of their own. The world quotes crypto in dollars, while the
+    /// Central Bank rate comes in rubles — with one base for both, either bitcoin
+    /// read in rubles or the euro read in dollars
+    var cryptoBase: String {
+        didSet { store(cryptoBase, "settings.cryptoBase") }
     }
 
     /// Coins only — their rate comes from a different source
@@ -65,6 +91,21 @@ final class AppSettings {
     /// capsule only — the finished-timer sound and notification still fire
     var timerInNotch: Bool {
         didSet { store(timerInNotch, "settings.timerInNotch") }
+    }
+
+    /// Pomodoro lengths, in minutes. Shared by every pomodoro tile: this is a
+    /// person's rhythm, not a property of one tile
+    var pomodoroWork: Int {
+        didSet { store(pomodoroWork, "settings.pomodoroWork") }
+    }
+
+    var pomodoroRest: Int {
+        didSet { store(pomodoroRest, "settings.pomodoroRest") }
+    }
+
+    /// Show the running pomodoro at the notch
+    var pomodoroInNotch: Bool {
+        didSet { store(pomodoroInNotch, "settings.pomodoroInNotch") }
     }
 
     /// Show battery events at the notch (plugged in, unplugged, low charge)
@@ -88,9 +129,21 @@ final class AppSettings {
         didSet { store(clipboardCards, "settings.clipboardCards") }
     }
 
-    /// How many entries to keep
+    /// How many entries to keep, 1…500. Clamped at the source, not only in the
+    /// settings field: a negative value written via `defaults` used to make
+    /// trim() drop everything unpinned
+    static let clipboardLimitRange = 1...500
+
     var clipboardLimit: Int {
-        didSet { store(clipboardLimit, "settings.clipboardLimit") }
+        didSet {
+            let clamped = min(max(clipboardLimit, Self.clipboardLimitRange.lowerBound),
+                Self.clipboardLimitRange.upperBound)
+            // Assigning inside didSet doesn't re-trigger the observer
+            if clamped != clipboardLimit { clipboardLimit = clamped }
+            store(clipboardLimit, "settings.clipboardLimit")
+            // A lowered limit takes effect now, not on the next copy
+            ClipboardStore.shared.limitChanged()
+        }
     }
 
     /// How many days to keep history. 0 — forever
@@ -117,10 +170,16 @@ final class AppSettings {
     var llmProvider: LLMProvider {
         didSet {
             store(llmProvider.rawValue, "settings.llmProvider")
-            // Provider changed — the default model changes too
-            if !LLMProvider.allCases.contains(where: { $0.defaultModel == llmModel }) { return }
-            llmModel = llmProvider.defaultModel
+            // Keys are per provider — "key present" is a different answer now
+            LLMClient.shared.keyDidChange()
+            // Each provider remembers its own model pick: a hand-chosen
+            // gpt-4o used to ride into Anthropic and produce a cryptic error
+            llmModel = Self.storedModel(for: llmProvider) ?? llmProvider.defaultModel
         }
+    }
+
+    private static func storedModel(for provider: LLMProvider) -> String? {
+        UserDefaults.standard.string(forKey: "settings.llmModel.\(provider.rawValue)")
     }
 
     /// The "Ask" bar in the panel. It makes the panel taller, so it's opt-in
@@ -132,7 +191,8 @@ final class AppSettings {
     }
 
     var llmModel: String {
-        didSet { store(llmModel, "settings.llmModel") }
+        // Stored per provider so a switch and a switch back keep both picks
+        didSet { store(llmModel, "settings.llmModel.\(llmProvider.rawValue)") }
     }
 
     /// Launch together with the system. Source of truth is the system itself
@@ -151,7 +211,13 @@ final class AppSettings {
             .flatMap(WeatherAlert.init(rawValue:)) ?? .beforeRain
         weatherPlace = defaults.data(forKey: "settings.weatherPlace")
             .flatMap { try? JSONDecoder().decode(Place.self, from: $0) }
-        baseCurrency = defaults.string(forKey: "settings.baseCurrency") ?? "RUB"
+        // Through a local: @Observable properties can't be read while the object is
+        // still being initialized
+        let savedBase = defaults.string(forKey: "settings.baseCurrency") ?? "RUB"
+        baseCurrency = savedBase
+        // No separate choice yet — coins keep showing in whatever the currencies do,
+        // exactly as before this setting existed
+        cryptoBase = defaults.string(forKey: "settings.cryptoBase") ?? savedBase
         // Migration from old keys: try the new list first, then the two old ones
         if let saved = Self.loadJSON([CurrencyChoice].self, "settings.currencies") {
             currencies = saved
@@ -165,15 +231,25 @@ final class AppSettings {
         musicInNotch = defaults.object(forKey: "settings.musicInNotch") as? Bool
             ?? defaults.object(forKey: "appearance.musicInNotch") as? Bool ?? true
         timerInNotch = defaults.object(forKey: "settings.timerInNotch") as? Bool ?? true
+        pomodoroWork = defaults.object(forKey: "settings.pomodoroWork") as? Int ?? 25
+        pomodoroRest = defaults.object(forKey: "settings.pomodoroRest") as? Int ?? 5
+        pomodoroInNotch = defaults.object(forKey: "settings.pomodoroInNotch") as? Bool ?? true
         batteryInNotch = defaults.object(forKey: "settings.batteryInNotch") as? Bool ?? true
         askBar = defaults.object(forKey: "settings.askBar") as? Bool ?? true
-        llmProvider = (defaults.string(forKey: "settings.llmProvider"))
+        let provider = (defaults.string(forKey: "settings.llmProvider"))
             .flatMap(LLMProvider.init(rawValue:)) ?? .openRouter
-        llmModel = defaults.string(forKey: "settings.llmModel")
-            ?? LLMProvider.openRouter.defaultModel
+        llmProvider = provider
+        // Per-provider key first, then the old shared key as a migration path
+        llmModel = Self.storedModel(for: provider)
+            ?? defaults.string(forKey: "settings.llmModel")
+            ?? provider.defaultModel
         clipboardEnabled = defaults.bool(forKey: "settings.clipboardEnabled")
         clipboardCards = defaults.object(forKey: "settings.clipboardCards") as? Bool ?? false
-        clipboardLimit = defaults.object(forKey: "settings.clipboardLimit") as? Int ?? 200
+        // Clamped on read too: a bad value may already be sitting in defaults
+        clipboardLimit = min(
+            max(defaults.object(forKey: "settings.clipboardLimit") as? Int ?? 200,
+                Self.clipboardLimitRange.lowerBound),
+            Self.clipboardLimitRange.upperBound)
         clipboardDays = defaults.object(forKey: "settings.clipboardDays") as? Int ?? 30
         clipboardHotkey = defaults.data(forKey: "settings.clipboardHotkey")
             .flatMap { try? JSONDecoder().decode(GlobalHotkey.Combo.self, from: $0) }

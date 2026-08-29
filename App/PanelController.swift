@@ -145,6 +145,14 @@ final class PanelController: NSObject {
             // Dropped straight on the notch without reaching a tile — put it on the shelf
             onFilesDrop: { [weak self] urls in
                 self?.dropOnShelf(urls) ?? false
+            },
+            // No shelf anywhere — the drag is refused before the drop, instead
+            // of accepting the file and announcing "Shelf is full" over a
+            // shelf that doesn't exist
+            acceptsFiles: { [weak self] in
+                guard let self else { return false }
+                appState.loadIfNeeded()
+                return appState.hasWidget(ShelfWidget.descriptor.id)
             })
 
         // The "Ask" row was toggled on or off — the panel height changed
@@ -161,6 +169,9 @@ final class PanelController: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.appState.isPanelVisible else { return }
+                // Geometry too, not just position: unplugging the monitor with
+                // the panel open left the wings laid out for the old screen's notch
+                self.applyNotchGeometry(for: NSScreen.main)
                 self.position(on: NSScreen.main)
             }
         }
@@ -797,9 +808,24 @@ final class PanelController: NSObject {
         guard let data = rep.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: URL(fileURLWithPath: "/tmp/sill_panel.png"))
         sillLog("[snapshot] /tmp/sill_panel.png \(image.width)x\(image.height)")
+        // The same panel as the window itself draws it. ImageRenderer paints every
+        // live text field as a yellow block, so input layout can only be checked here
+        snapshotLive()
         snapshotSettings()
         if !panel.isVisible { appState.setPanelVisibleForSnapshot(false) }
         snapshotIsland()
+    }
+
+    /// Frame of the real window: text fields, lists and scroll views are drawn as
+    /// they actually are. No screen-recording permission needed — the window draws itself
+    private func snapshotLive() {
+        guard panel.isVisible, let view = panel.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: URL(fileURLWithPath: "/tmp/sill_panel_live.png"))
+        sillLog("[snapshot] /tmp/sill_panel_live.png")
     }
 
     // Snapshot the settings section: the settings window doesn't appear in the panel
@@ -807,6 +833,7 @@ final class PanelController: NSObject {
     // ourselves — there's no network in the render
     private func snapshotSettings() {
         let sample: [CurrencyWidget.Rate] = [
+            .init(code: "RUB", name: "Russian Ruble", value: 1, previous: 1, nominal: 1),
             .init(code: "USD", name: "US Dollar", value: 84.5, previous: 84.1, nominal: 1),
             .init(code: "EUR", name: "Euro", value: 98.2, previous: 98.9, nominal: 1),
             .init(code: "GEL", name: "Georgian Lari", value: 31.2, previous: 31.1, nominal: 1),
@@ -818,11 +845,14 @@ final class PanelController: NSObject {
                 nominal: 1, kind: .crypto),
         ]
         let view = VStack(alignment: .leading, spacing: 0) {
+            // The sections that are hard to check any other way: boards, the notch
+            // rows (weather city, media-key access) and the currency search
+            BoardSettings()
+            NotchSettings()
             CurrencySettings(
-                sample: sample, sampleQuery: "e",
+                sample: sample, sampleQuery: "u",
                 sampleChosen: [
                     CurrencyChoice(code: "EUR", isCrypto: false),
-                    CurrencyChoice(code: "USD", isCrypto: false),
                     CurrencyChoice(code: "GEL", isCrypto: false),
                     CurrencyChoice(code: "BTC", isCrypto: true),
                 ])
@@ -996,6 +1026,7 @@ final class PanelController: NSObject {
     /// The notch capsule invites a file to be dropped. Only show it if a shelf
     /// actually exists: nowhere to invite it to, no point inviting. The panel doesn't open
     private func showShelfInvite(_ inside: Bool) {
+        appState.loadIfNeeded()  // a drag can arrive before the panel ever opened
         guard appState.hasWidget(ShelfWidget.descriptor.id) else { return }
         if inside {
             ShelfActivity.invite(full: shelves().allSatisfy(\.isFull))
@@ -1012,7 +1043,10 @@ final class PanelController: NSObject {
     /// Files dropped on the notch: distribute them across shelves in order — fill the
     /// first one before moving to the next. Don't open the panel: the file already landed
     private func dropOnShelf(_ urls: [URL]) -> Bool {
-        guard !urls.isEmpty else { return false }
+        appState.loadIfNeeded()
+        // Refused up front in acceptsFiles, but the guard stays: "full" must
+        // only ever be said about a shelf that exists
+        guard !urls.isEmpty, appState.hasWidget(ShelfWidget.descriptor.id) else { return false }
         var rest = urls
         var added = 0
         for shelf in shelves() where !rest.isEmpty {
@@ -1057,14 +1091,8 @@ final class PanelController: NSObject {
         }
     }
 
-    func showPanel(on screen: NSScreen? = nil) {
-        appState.loadIfNeeded()
-        // Cancel the pending removal: the panel is needed again
-        hideTask?.cancel()
-        hideTask = nil
-        phase = .shown
-        let target = screen ?? NSScreen.main
-        // Starting point of the "flowing out" — the real notch size on this screen
+    // Starting point of the "flowing out" — the real notch size on this screen
+    private func applyNotchGeometry(for target: NSScreen?) {
         if let target, let notch = NotchTrigger.notchRect(of: target) {
             appState.collapseScale = CGSize(
                 width: notch.width / Self.islandSize.width,
@@ -1079,11 +1107,23 @@ final class PanelController: NSObject {
             appState.notchWidth = 0
             appState.collapseScale = CGSize(width: 0.25, height: 0.12)
         }
+    }
+
+    func showPanel(on screen: NSScreen? = nil) {
+        appState.loadIfNeeded()
+        // Cancel the pending removal: the panel is needed again
+        hideTask?.cancel()
+        hideTask = nil
+        phase = .shown
+        let target = screen ?? NSScreen.main
+        applyNotchGeometry(for: target)
         position(on: target)
         // The capsule hides as part of opening, not on its own tick: before this fix
         // it could hang over an open panel for up to two seconds. We can't just ask
         // the island — it watches isPanelVisible, which only updates on the next pass
         island?.panelOpened()
+        // Settings steps aside, the same way it pushes the panel out when it opens
+        SettingsWindowController.shared.hideForPanel()
         panel.orderFrontRegardless()
         panel.makeKey()
         // The window became key — AppKit puts focus on the first input field on its
@@ -1128,9 +1168,16 @@ final class PanelController: NSObject {
     // Flush against the top of the screen, centered on the notch: the panel covers
     // the menu bar area and looks like its continuation. Screen: wherever was clicked, otherwise the main one.
     private func position(on screen: NSScreen?) {
-        guard let screen else { return }
+        // The status item's window can sit off-screen (a menu bar manager
+        // parked the icon at x≈-9700 on this very machine) — main screen then
+        guard let screen = screen ?? NSScreen.main else { return }
         let size = Self.windowSize
-        let x = screen.frame.midX - size.width / 2
+        // Clamped to the screen: centering alone let the panel open cut off on
+        // both sides of a narrow external display. When it's narrower than the
+        // panel, the left edge wins — a fixed anchor beats two clipped edges
+        let x = max(
+            min(screen.frame.midX - size.width / 2, screen.frame.maxX - size.width),
+            screen.frame.minX)
         let y = screen.frame.maxY - size.height
         // display: false — synchronously rendering the whole tree right before
         // showing was the most expensive step on the panel-open path

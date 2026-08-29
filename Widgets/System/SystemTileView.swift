@@ -21,22 +21,17 @@ struct SystemTileView: View {
 
 // MARK: - shared bits
 
-// A metric row: label, value, fill bar
+// A metric row: label, value, fill bar. No per-row graph: the large overview
+// moved to rings, and the graph parameter sat dead with no caller passing it
 private struct MeterRow: View {
     let title: String
     let value: String
     let share: Double
     var tint: Color?
-    /// At the large size, its own one-minute graph is drawn under the row
-    var history: [Double] = []
     @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(spacing: 3) {
-            if !history.isEmpty {
-                MiniGraph(values: history, tint: tint ?? theme.accent.color)
-                    .frame(height: 16)
-            }
             HStack {
                 Text(title)
                     .font(TileFont.caption)
@@ -59,28 +54,6 @@ private struct MeterRow: View {
                 .frame(maxHeight: .infinity)
             }
             .frame(height: 3)
-        }
-    }
-}
-
-// A short graph behind an overview row
-private struct MiniGraph: View {
-    let values: [Double]
-    let tint: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            Path { path in
-                guard values.count > 1 else { return }
-                let step = geo.size.width / CGFloat(values.count - 1)
-                for (index, value) in values.enumerated() {
-                    let point = CGPoint(
-                        x: CGFloat(index) * step,
-                        y: geo.size.height * (1 - min(max(value, 0), 1)))
-                    if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-                }
-            }
-            .stroke(tint.opacity(0.55), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
         }
     }
 }
@@ -122,12 +95,23 @@ private struct SystemSmallView: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        let metrics = widget.metrics
-        VStack(alignment: .leading, spacing: 7) {
-            TileLabel(String(localized: "overview"))
+        // The point of an overview is not having to pick between metrics: in the
+        // square they're just packed tighter, but all present. What gives way is the
+        // chrome around them — the layout picks the first variant that fits, so the
+        // last row is never cut off by the tile edge (the battery row used to be)
+        ViewThatFits(in: .vertical) {
+            meters(label: true, gap: TileMetrics.meterGap)
+            meters(label: false, gap: TileMetrics.meterGap)
+            meters(label: false, gap: TileMetrics.meterGapDense)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
 
-            // The point of an overview is not having to pick between metrics:
-            // in the square they're just packed tighter, but all present
+    private func meters(label: Bool, gap: CGFloat) -> some View {
+        let metrics = widget.metrics
+        return VStack(alignment: .leading, spacing: gap) {
+            if label { TileLabel(String(localized: "overview")) }
+
             CompactMeter(
                 title: String(localized: "CPU"), value: SystemMetrics.percent(metrics.cpu.load),
                 share: metrics.cpu.load, tint: theme.metricColor(.cpu))
@@ -147,7 +131,7 @@ private struct SystemSmallView: View {
             }
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 

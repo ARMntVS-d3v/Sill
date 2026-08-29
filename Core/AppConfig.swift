@@ -10,6 +10,29 @@ struct Tile: Codable, Identifiable, Sendable, Equatable {
     var widgetID: String
     var size: TileSize
     var origin: GridPoint
+
+    enum CodingKeys: String, CodingKey {
+        case id, widgetID, size, origin
+    }
+
+    init(id: UUID, widgetID: String, size: TileSize, origin: GridPoint) {
+        self.id = id
+        self.widgetID = widgetID
+        self.size = size
+        self.origin = origin
+    }
+
+    // An unknown size value (config from a newer version after a downgrade)
+    // must not throw: one unreadable enum used to take the whole file down
+    // with it — every board replaced by the defaults
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        widgetID = try container.decode(String.self, forKey: .widgetID)
+        let rawSize = try container.decodeIfPresent(String.self, forKey: .size)
+        size = rawSize.flatMap { TileSize(rawValue: $0) } ?? .small
+        origin = try container.decode(GridPoint.self, forKey: .origin)
+    }
 }
 
 struct Board: Codable, Identifiable, Sendable, Equatable {
@@ -47,7 +70,10 @@ struct Board: Codable, Identifiable, Sendable, Equatable {
         icon = try container.decode(String.self, forKey: .icon)
         themeName = try container.decodeIfPresent(String.self, forKey: .themeName)
         tiles = try container.decode([Tile].self, forKey: .tiles)
-        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .tiles
+        // Unknown kind (a newer version's board after a downgrade) falls back
+        // to a tile board instead of throwing away the whole config
+        let rawKind = try container.decodeIfPresent(String.self, forKey: .kind)
+        kind = rawKind.flatMap { Kind(rawValue: $0) } ?? .tiles
     }
 }
 
@@ -126,6 +152,47 @@ enum ConfigStore {
         var result = config
         if result.boards.isEmpty {
             result.boards = AppConfig.makeDefault().boards
+        }
+        // Out-of-grid origins come from hand-edited or imported JSON. They
+        // can't be let through: any pass over cells computes origin + size,
+        // and an origin near Int.max traps the whole app. A displaced tile
+        // moves to the first free spot; with no room left it's dropped, logged
+        for boardIndex in result.boards.indices {
+            var kept: [Tile] = []
+            var displaced: [Tile] = []
+            for tile in result.boards[boardIndex].tiles {
+                if BoardLayout.isInsideBoard(origin: tile.origin, size: tile.size) {
+                    kept.append(tile)
+                } else {
+                    displaced.append(tile)
+                }
+            }
+            guard !displaced.isEmpty else { continue }
+            for var tile in displaced {
+                if let spot = BoardLayout.firstFreeSpot(for: tile.size, in: kept) {
+                    tile.origin = spot
+                    kept.append(tile)
+                    sillLog("[config] \(tile.widgetID) tile was outside the grid, moved to \(spot.col),\(spot.row)")
+                } else {
+                    sillLog("[config] \(tile.widgetID) tile was outside the grid, no room left — dropped")
+                }
+            }
+            result.boards[boardIndex].tiles = kept
+        }
+        // Duplicate tile ids (hand-edited or imported JSON) collapse two tiles
+        // into one host: the dictionary is keyed by id, and the second tile
+        // silently showed the first one's widget. The duplicate gets a fresh
+        // id; its per-tile settings belong to the original and stay with it
+        var seenTiles: Set<UUID> = []
+        for boardIndex in result.boards.indices {
+            for tileIndex in result.boards[boardIndex].tiles.indices {
+                let id = result.boards[boardIndex].tiles[tileIndex].id
+                if seenTiles.contains(id) {
+                    result.boards[boardIndex].tiles[tileIndex].id = UUID()
+                    sillLog("[config] duplicate tile id \(id) — reassigned")
+                }
+                seenTiles.insert(result.boards[boardIndex].tiles[tileIndex].id)
+            }
         }
         if !result.boards.contains(where: { $0.id == result.activeBoardID }) {
             result.activeBoardID = result.boards[0].id

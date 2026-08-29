@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import SwiftUI
 
 // Clipboard history. Lives separately from the widget: it has to collect entries
@@ -33,6 +34,10 @@ final class ClipboardStore {
         var sourceID: String?
         var date: Date
         var pinned = false
+        /// Content hash of a stored image — repeat copies of the same picture
+        /// dedupe by it (text and files dedupe by their own content). Absent
+        /// on entries from before the field existed; those simply never match
+        var imageHash: String?
 
         var isImage: Bool { image != nil && file == nil }
         var isFile: Bool { file != nil }
@@ -172,28 +177,72 @@ final class ClipboardStore {
         let sourceID = front?.bundleIdentifier
 
         // Files from Finder arrive as links, not content. Store the path and a
-        // small thumbnail — nobody needs a full copy of the file sitting in history
+        // small thumbnail — nobody needs a full copy of the file sitting in
+        // history. The entry lands immediately and the thumbnail catches up off
+        // the main actor: generating it synchronously froze the main thread —
+        // a file on a dead network share hung the capsule and the hotkey with it
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let url = urls.first, url.isFileURL {
-            let thumb = Self.thumbnail(of: url).flatMap { Self.store(png: $0) }
-            add(Item(
-                id: UUID(), image: thumb, file: url.path,
-                source: source, sourceID: sourceID, date: Date()))
+           !urls.filter(\.isFileURL).isEmpty {
+            // Every file of a multi-selection, not just the first: two of five
+            // copied files used to vanish from history without a trace.
+            // Reversed so the first selected file ends up as the top entry
+            for url in urls.filter(\.isFileURL).reversed() {
+                let id = UUID()
+                add(Item(id: id, file: url.path, source: source, sourceID: sourceID, date: Date()))
+                Task { [weak self] in
+                    guard let thumb = await Self.makeThumbnail(of: url) else { return }
+                    guard let self, let index = items.firstIndex(where: { $0.id == id }) else {
+                        // The entry was deduped away or already evicted — don't orphan the file
+                        try? FileManager.default.removeItem(
+                            at: Self.imagesDirectory.appending(path: thumb))
+                        return
+                    }
+                    items[index].image = thumb
+                    save()
+                }
+            }
             return
         }
         // Image content: a screenshot, a copy from Preview or a browser. Checked
         // BEFORE text: an image often has a text representation too, and it used
         // to be that text that landed in history while the image itself was lost
         if let data = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff),
-           let png = Self.compressed(data), let name = Self.store(png: png) {
-            add(Item(id: UUID(), image: name, source: source, sourceID: sourceID, date: Date()))
-            return
+           let png = Self.compressed(data) {
+            // Deduped by content hash BEFORE writing: files and text collapse
+            // repeats, but every re-copied screenshot used to become a new
+            // entry and a new PNG on disk
+            let hash = Self.hash(png)
+            if let index = items.firstIndex(where: { $0.imageHash == hash }) {
+                var existing = items.remove(at: index)
+                existing.date = Date()
+                items.insert(existing, at: 0)
+                trim()
+                save()
+                return
+            }
+            if let name = Self.store(png: png) {
+                add(Item(
+                    id: UUID(), image: name, source: source, sourceID: sourceID,
+                    date: Date(), imageHash: hash))
+                return
+            }
         }
         if let string = pasteboard.string(forType: .string),
            !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Images get scaled down; text can only be skipped whole — a
+            // truncated entry would paste back corrupted. A ten-megabyte log
+            // used to be rewritten to disk on every following copy
+            guard string.utf8.count <= Self.maxTextBytes else {
+                sillLog("[clipboard] text of \(string.utf8.count) bytes skipped — over the limit")
+                return
+            }
             add(Item(id: UUID(), text: string, source: source, sourceID: sourceID, date: Date()))
         }
     }
+
+    /// Above this size text isn't recorded at all: history.json is rewritten
+    /// whole on every change, and one giant entry taxes every later copy
+    private static let maxTextBytes = 1024 * 1024
 
     /// Above this size we no longer store an image as-is: a 6K screenshot weighs
     /// close to 50 MB, and a dozen of those eat the disk. Large ones get scaled
@@ -215,7 +264,7 @@ final class ClipboardStore {
         return icon
     }
 
-    private static func store(png: Data) -> String? {
+    private nonisolated static func store(png: Data) -> String? {
         let name = UUID().uuidString + ".png"
         do {
             try png.write(to: imagesDirectory.appending(path: name))
@@ -223,6 +272,11 @@ final class ClipboardStore {
         } catch {
             return nil
         }
+    }
+
+    /// Content fingerprint for image dedup — SHA-256 of the stored bytes
+    private nonisolated static func hash(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Image to store: small ones as-is, large ones scaled down. A slightly
@@ -260,7 +314,7 @@ final class ClipboardStore {
     /// CGImageSource decodes only the thumbnail — NSImage(contentsOf:) decoded
     /// the entire file on the polling task's thread and froze the panel on
     /// large images
-    private static func thumbnail(of url: URL) -> Data? {
+    private nonisolated static func thumbnail(of url: URL) -> Data? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -270,6 +324,12 @@ final class ClipboardStore {
         guard let scaled = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
         else { return nil }
         return NSBitmapImageRep(cgImage: scaled).representation(using: .png, properties: [:])
+    }
+
+    /// Thumbnail generated and stored off the main actor — the entry is
+    /// already in history; the preview attaches whenever it's ready
+    private nonisolated static func makeThumbnail(of url: URL) async -> String? {
+        thumbnail(of: url).flatMap { store(png: $0) }
     }
 
     /// Copying from history itself shouldn't grow history
@@ -323,6 +383,13 @@ final class ClipboardStore {
         // the tile reported "Copied" — losing whatever was on the pasteboard before
         let payload: (NSPasteboard) -> Void
         if let file = item.file {
+            // The image path already checks its file; a copied file needs the
+            // same — a deleted file used to land on the pasteboard as a dead
+            // path while the capsule reported "Copied"
+            guard FileManager.default.fileExists(atPath: file) else {
+                sillLog("[clipboard] file no longer exists, nothing to copy: \(file)")
+                return false
+            }
             payload = { $0.writeObjects([URL(filePath: file) as NSURL]) }
         } else if let text = item.text {
             payload = { $0.setString(text, forType: .string) }
@@ -420,6 +487,9 @@ final class ClipboardStore {
     /// Prepared previews. Without this cache, `NSImage(contentsOf:)` ran every
     /// frame for every visible row — reading from disk during scrolling
     @ObservationIgnored private var previews: [String: NSImage] = [:]
+    /// Load order, for eviction: the oldest half goes, not everything —
+    /// a full reset made scrolling there and back re-read every file
+    @ObservationIgnored private var previewOrder: [String] = []
 
     func image(for item: Item) -> NSImage? {
         guard let name = item.image else { return nil }
@@ -427,22 +497,36 @@ final class ClipboardStore {
         guard let image = NSImage(contentsOf: Self.imagesDirectory.appending(path: name))
         else { return nil }
         // Keep about as many as fit on screen with headroom
-        if previews.count > 60 { previews.removeAll() }
+        if previews.count >= 60 {
+            for old in previewOrder.prefix(30) { previews[old] = nil }
+            previewOrder.removeFirst(min(30, previewOrder.count))
+        }
         previews[name] = image
+        previewOrder.append(name)
         return image
     }
 
     // MARK: - storage
 
-    private static var directory: URL {
+    private nonisolated static var directory: URL {
         URL.applicationSupportDirectory.appending(path: "Sill/clipboard")
     }
-    fileprivate static var imagesDirectory: URL { directory.appending(path: "images") }
+    fileprivate nonisolated static var imagesDirectory: URL { directory.appending(path: "images") }
     private static var file: URL { directory.appending(path: "history.json") }
 
     /// History is needed outside the collector too: settings show a count, and
     /// "Clear" without a loaded list would wipe the file and orphan the images
     func ensureLoaded() { loadIfNeeded() }
+
+    /// The limit was lowered in settings — applied now, not on the next copy:
+    /// trim() used to run only from add(), and 200 entries sat there after
+    /// the person had set the limit to 1
+    func limitChanged() {
+        loadIfNeeded()
+        let before = items.count
+        trim()
+        if items.count != before { save() }
+    }
 
     /// When expired entries were last purged. This used to run only at load time —
     /// in an app that can stay running for weeks without restarting, the
@@ -463,11 +547,45 @@ final class ClipboardStore {
         // Owner-only folder: history is personal
         try? FileManager.default.setAttributes(
             [.posixPermissions: 0o700], ofItemAtPath: Self.directory.path)
-        guard let data = try? Data(contentsOf: Self.file),
-              let stored = try? JSONDecoder().decode([Item].self, from: data)
-        else { return }
+        guard let data = try? Data(contentsOf: Self.file) else { return }
+        guard let stored = try? JSONDecoder().decode([Item].self, from: data) else {
+            // Same treatment as a broken config: back up and log. Silently
+            // starting empty meant the next copy overwrote the file — pinned
+            // entries included — with no trace of what happened
+            sillLog("[clipboard] history.json unreadable, backing up as history.broken.json")
+            let backup = Self.directory.appending(path: "history.broken.json")
+            try? data.write(to: backup, options: .atomic)
+            return
+        }
         items = stored
         dropExpired()
+        purgeOrphanedImages()
+    }
+
+    /// Files in images/ that no history entry references — leftovers of old
+    /// bugs (a dedup path used to orphan thumbnails; 49 files, 20 MB on a
+    /// live machine). The referenced set is captured now, on the main actor,
+    /// and only files older than a minute are deleted: a file written for an
+    /// entry added while the sweep runs must not be caught in it
+    private func purgeOrphanedImages() {
+        let referenced = Set(items.compactMap(\.image))
+        let dir = Self.imagesDirectory
+        Task.detached(priority: .utility) {
+            let files =
+                (try? FileManager.default.contentsOfDirectory(
+                    at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            let edge = Date().addingTimeInterval(-60)
+            var removed = 0
+            for file in files where !referenced.contains(file.lastPathComponent) {
+                let modified =
+                    (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                guard modified < edge else { continue }
+                try? FileManager.default.removeItem(at: file)
+                removed += 1
+            }
+            if removed > 0 { sillLog("[clipboard] purged \(removed) orphaned previews") }
+        }
     }
 
     /// Retention: old entries age out on their own so history doesn't pile up for years

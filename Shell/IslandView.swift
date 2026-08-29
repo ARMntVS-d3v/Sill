@@ -89,7 +89,7 @@ struct IslandView: View {
                 .opacity(expandedKind ? 0 : 1)
                 .animation(
                     .easeOut(duration: Motion.islandContent)
-                        .delay(expandedKind ? 0 : 0.14),
+                        .delay(expandedKind ? 0 : Motion.islandRowReturnDelay),
                     value: expandedKind)
             // The bottom part exists only in the expanded view: bigger artwork and
             // the full title — "what's playing now", not just "something's playing"
@@ -125,9 +125,19 @@ struct IslandView: View {
         // values made the motion feel warped
         .animation(.interpolatingSpring(Motion.island), value: width)
         .animation(.interpolatingSpring(Motion.island), value: height)
-        // The window reads these sizes when deciding whether to take a click
-        .onChange(of: width, initial: true) { presentation.capsuleWidth = width }
-        .onChange(of: height, initial: true) { presentation.capsuleHeight = height }
+        // The window reads these sizes when deciding whether to take a click.
+        // Measured from the animated frame, not the target values: during the
+        // collapse the capsule is still visibly wide, and a click on it used
+        // to fall through because the target width was already narrow
+        .background {
+            GeometryReader { geometry in
+                Color.clear.onChange(of: geometry.size, initial: true) { _, size in
+                    presentation.capsuleWidth = size.width
+                    presentation.capsuleHeight = size.height
+                    presentation.onCapsuleSize?(size)
+                }
+            }
+        }
         // The window is wider than the capsule; without this it hugged the left
         // edge and looked like it was hanging to the left of the notch
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -161,7 +171,7 @@ struct IslandView: View {
                 .lineLimit(1)
                 .contentTransition(.opacity)
         }
-        .animation(.easeOut(duration: 0.16), value: activity?.value)
+        .animation(.easeOut(duration: Motion.islandSwap), value: activity?.value)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.top, 6)
         .padding(.bottom, 8)
@@ -261,7 +271,7 @@ struct IslandView: View {
                 .font(TileIcon.glyph)
                 .foregroundStyle(activity?.tint ?? .white)
                 .contentTransition(.symbolEffect(.replace))
-                .animation(.easeOut(duration: 0.2), value: activity?.icon)
+                .animation(.easeOut(duration: Motion.content), value: activity?.icon)
         }
     }
 
@@ -276,7 +286,7 @@ struct IslandView: View {
                 .monospacedDigit()
                 // Digits roll over instead of snapping — like the Clock app on iPhone
                 .contentTransition(.numericText())
-                .animation(.easeOut(duration: 0.2), value: activity?.value)
+                .animation(.easeOut(duration: Motion.content), value: activity?.value)
                 .foregroundStyle(activity?.tint ?? .white)
                 .lineLimit(1)
         }

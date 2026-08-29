@@ -18,7 +18,11 @@ final class AppState {
         didSet { UserDefaults.standard.set(askOpen, forKey: "ask.open") }
     }
 
-    @ObservationIgnored private var undoStack: [AppConfig] = []
+    /// Observed, not ignored: `canUndo` decides whether the undo arrow is drawn in
+    /// the wing, and while the stack was hidden from observation the arrow simply
+    /// never appeared — in edit mode the wings row reads nothing else that changes
+    /// when a board or a tile is removed, so nothing made it redraw
+    private var undoStack: [AppConfig] = []
 
     /// How the panel appears. From the notch — when opened by clicking it: the
     /// gesture and the animation are the same thing. The hotkey has nothing to
@@ -72,6 +76,30 @@ final class AppState {
         }
         themeEngine.loadIfNeeded()
         applyBoardTheme()
+        purgeOrphanedTileData()
+    }
+
+    /// One launch-time sweep for data left behind by tiles removed before
+    /// deletion cleaned up after itself: instance settings, cache entries,
+    /// shelf file copies. Deferred a few seconds — loadIfNeeded sits on the
+    /// panel-opening path, and cleanliness isn't urgent. Tile ids are read at
+    /// fire time, so a tile added meanwhile is already counted as alive
+    private func purgeOrphanedTileData() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self else { return }
+            let alive = Set(config.boards.flatMap { $0.tiles.map(\.id) })
+            WidgetSettings.purgeOrphans(keeping: alive)
+            WidgetCache.purgeOrphans(keeping: alive)
+            let shelfTiles = config.boards.flatMap {
+                $0.tiles.filter { $0.widgetID == ShelfWidget.descriptor.id }.map(\.id)
+            }
+            ShelfWidget.purgeOrphanCopies(aliveTiles: shelfTiles)
+            // Ghost timers: a quit before the deferred removal cleanup ran
+            // would leave the island ringing a timer with no tile to stop it
+            TimerActivity.purgeOrphans(keeping: alive)
+            PomodoroActivity.purgeOrphans(keeping: alive)
+        }
     }
 
     /// A board can have its own theme. Applied on every switch, not just at
@@ -177,6 +205,8 @@ final class AppState {
         // next "undo" would revert something the person doesn't even remember doing
         isEditing = false
         undoStack.removeAll()
+        // Undo is gone — removals made this session are now final
+        flushPendingCleanup()
         showSettings = false
         // Opened the clipboard via hotkey — return to the board we were on before it.
         // Navigated there by hand (the dot in the wing) — stay there
@@ -195,7 +225,7 @@ final class AppState {
     // A new board starts empty and becomes active right away: the person tapped
     // "+" to fill it, not to look at the old one
     func addBoard() {
-        undoStack.append(config)
+        pushUndo()
         let board = Board(
             id: UUID(),
             name: String(localized: "Board \(config.boards.count + 1)"),
@@ -216,7 +246,7 @@ final class AppState {
         guard let index = config.boards.firstIndex(where: { $0.id == id }) else { return }
         let target = index + offset
         guard config.boards.indices.contains(target) else { return }
-        undoStack.append(config)
+        pushUndo()
         config.boards.swapAt(index, target)
         persist()
     }
@@ -227,17 +257,19 @@ final class AppState {
         guard let index = config.boards.firstIndex(where: { $0.id == id }) else { return }
         let clamped = min(max(target, 0), config.boards.count - 1)
         guard clamped != index else { return }
-        undoStack.append(config)
+        pushUndo()
         let board = config.boards.remove(at: index)
         config.boards.insert(board, at: clamped)
         persist()
     }
 
     func renameBoard(_ id: UUID, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Capped: the name only ever shows in tooltips and menus, and an
+        // unbounded string went straight into the config file
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
         guard !trimmed.isEmpty, let index = config.boards.firstIndex(where: { $0.id == id })
         else { return }
-        undoStack.append(config)
+        pushUndo()
         config.boards[index].name = trimmed
         persist()
     }
@@ -262,15 +294,17 @@ final class AppState {
     func removeBoard(_ id: UUID) {
         guard config.boards.count > 1, let index = config.boards.firstIndex(where: { $0.id == id })
         else { return }
-        undoStack.append(config)
-        // The clipboard board lives by the setting — clear the setting and the
-        // board follows. Push undo here too: board removal is promised to be reversible
-        if config.boards[index].kind == .clipboard {
-            AppSettings.shared.clipboardEnabled = false
+        // The clipboard board isn't deleted, it's switched off: it appears and
+        // disappears with "Keep clipboard history" and nothing else. Deleting it
+        // as a board meant one action doing two different things
+        guard config.boards[index].kind != .clipboard else {
+            sillLog("[boards] the clipboard board follows its setting, not deletion")
             return
         }
+        pushUndo()
         for tile in config.boards[index].tiles {
-            host(for: tile).willRemove()
+            // Deferred like single-tile removal: board removal is undoable too
+            pendingCleanup[tile.id] = tile
             hosts[tile.id]?.sleep()
             hosts[tile.id] = nil
         }
@@ -669,7 +703,7 @@ final class AppState {
               let spot = BoardLayout.placement(
                 for: size, preferring: tile.origin, ignoring: tileID, in: activeTiles)
         else { return }
-        undoStack.append(config)
+        pushUndo()
         config.boards[boardIndex].tiles[tileIndex].size = size
         config.boards[boardIndex].tiles[tileIndex].origin = spot
         persist()
@@ -684,7 +718,7 @@ final class AppState {
 
         if BoardLayout.canPlace(
             size: tile.size, at: origin, ignoring: tileID, in: activeTiles) {
-            undoStack.append(config)
+            pushUndo()
             config.boards[boardIndex].tiles[tileIndex].origin = origin
             persist()
             return
@@ -695,7 +729,7 @@ final class AppState {
               let otherIndex = config.boards[boardIndex].tiles.firstIndex(where: { $0.id == other.id })
         else { return }
 
-        undoStack.append(config)
+        pushUndo()
         let tileOrigin = tile.origin
         withAnimation(.easeOut(duration: 0.2)) {
             config.boards[boardIndex].tiles[tileIndex].origin = other.origin
@@ -705,13 +739,17 @@ final class AppState {
     }
 
     func removeTile(id: UUID) {
-        guard let boardIndex = boardIndex() else { return }
-        undoStack.append(config)
-        // The widget gets to clear what outlives it (island state, per-tile
-        // storage) — via host(for:), because the tile may never have been drawn
-        if let tile = config.boards[boardIndex].tiles.first(where: { $0.id == id }) {
-            host(for: tile).willRemove()
-        }
+        // The tile must be on the active board before anything happens: a
+        // removal aimed at another board used to fail silently while still
+        // pushing an undo entry — "undo" then reverted nothing
+        guard let boardIndex = boardIndex(),
+            let tile = config.boards[boardIndex].tiles.first(where: { $0.id == id })
+        else { return }
+        pushUndo()
+        // Cleanup is deferred, not done here: willRemove() is irreversible,
+        // and "undo" used to bring the tile back with its data wiped. The
+        // actual cleanup runs when the undo history is discarded (panel close)
+        pendingCleanup[tile.id] = tile
         config.boards[boardIndex].tiles.removeAll { $0.id == id }
         hosts[id]?.sleep()
         hosts[id] = nil
@@ -724,7 +762,7 @@ final class AppState {
         guard let spot,
               BoardLayout.canPlace(size: size, at: spot, ignoring: nil, in: activeTiles)
         else { return }
-        undoStack.append(config)
+        pushUndo()
         let tile = Tile(id: UUID(), widgetID: widgetID, size: size, origin: spot)
         config.boards[boardIndex].tiles.append(tile)
         persist()
@@ -733,10 +771,24 @@ final class AppState {
 
     func undo() {
         guard let previous = undoStack.popLast() else { return }
+        let before = config.boards.flatMap(\.tiles)
         config = previous
+        let alive = Set(previous.boards.flatMap { $0.tiles.map(\.id) })
+        // Tiles the undo made disappear (undoing an add) join the deferred
+        // cleanup; tiles it brought back leave it — their data was never
+        // deleted, so a restored tile returns whole, timer state included
+        for tile in before where !alive.contains(tile.id) {
+            pendingCleanup[tile.id] = tile
+        }
+        pendingCleanup = pendingCleanup.filter { !alive.contains($0.key) }
+        // The clipboard board lives by its setting — restoring the board must
+        // restore the setting too, or the mismatch survived until relaunch
+        let hasClipboard = config.boards.contains { $0.kind == .clipboard }
+        if hasClipboard != AppSettings.shared.clipboardEnabled {
+            AppSettings.shared.clipboardEnabled = hasClipboard
+        }
         // No need to keep hosts for tiles that no longer exist on any board:
         // the dictionary was only cleaned up on tile removal, and undo never touched it
-        let alive = Set(previous.boards.flatMap { $0.tiles.map(\.id) })
         for (id, host) in hosts where !alive.contains(id) {
             host.sleep()
             hosts[id] = nil
@@ -748,6 +800,35 @@ final class AppState {
     }
 
     var canUndo: Bool { !undoStack.isEmpty }
+
+    /// Snapshots are full config copies, and with a pinned panel every tile
+    /// nudge used to push one with no bound at all — the stack only clears on
+    /// panel close. Fifty steps of undo is more than anyone walks back
+    private static let undoLimit = 50
+
+    private func pushUndo() {
+        undoStack.append(config)
+        if undoStack.count > Self.undoLimit {
+            undoStack.removeFirst(undoStack.count - Self.undoLimit)
+        }
+    }
+
+    /// Tiles removed while undo could still bring them back. Flushed when the
+    /// undo history is discarded: only then is the removal final and the
+    /// widget's irreversible cleanup (island state, file copies, settings) safe
+    @ObservationIgnored private var pendingCleanup: [UUID: Tile] = [:]
+
+    private func flushPendingCleanup() {
+        guard !pendingCleanup.isEmpty else { return }
+        let alive = Set(config.boards.flatMap { $0.tiles.map(\.id) })
+        for (id, tile) in pendingCleanup where !alive.contains(id) {
+            // Via host(for:) — the tile may never have been drawn
+            host(for: tile).willRemove()
+            hosts[id]?.sleep()
+            hosts[id] = nil
+        }
+        pendingCleanup.removeAll()
+    }
 
     private func boardIndex() -> Int? {
         config.boards.firstIndex { $0.id == config.activeBoardID }

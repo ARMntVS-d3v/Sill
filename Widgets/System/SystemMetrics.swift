@@ -137,12 +137,27 @@ final class SystemMetrics {
     /// Sample. Widgets call this from their own tick — redundant calls are dropped
     func refresh() {
         let now = Date()
-        if let lastTick, now.timeIntervalSince(lastTick) < 0.8 { return }
-        let interval = lastTick.map { now.timeIntervalSince($0) } ?? 1
+        // The debounce only applies to a small POSITIVE gap: a clock set
+        // backwards gives a negative one, and it used to pass the `< 0.8`
+        // check — freezing every system tile until wall time caught up
+        let sinceLast = lastTick.map { now.timeIntervalSince($0) }
+        if let sinceLast, sinceLast >= 0, sinceLast < 0.8 { return }
+        let interval = max(sinceLast ?? 1, 0.001)
         // The panel was closed, so there were no samples, and yesterday's value
         // can't be stitched to today's into one continuous curve: the graph is
-        // labeled "last minute". A gap over five seconds means the whole history is stale
-        if let lastTick, now.timeIntervalSince(lastTick) > 5 { clearHistory() }
+        // labeled "last minute". A gap over five seconds means the whole history
+        // is stale. A negative gap (clock moved back) resets the same way
+        if let sinceLast, sinceLast > 5 || sinceLast < 0 {
+            clearHistory()
+            // The delta counters are stale too: the first number after a wake
+            // used to divide the whole idle period's bytes and ticks by its
+            // length — a panel closed overnight opened showing the night's average
+            netCounters = nil
+            diskCounters = nil
+            cpuTicks = nil
+            coreTicks = []
+            processTimes = [:]
+        }
         lastTick = now
 
         readCpu()
@@ -208,7 +223,9 @@ final class SystemMetrics {
         next.efficiencyCores = Int(SystemProbe.sysctlNumber("hw.perflevel1.physicalcpu") ?? 0)
 
         if let total = SystemProbe.cpuTotals() {
-            if let previous = cpuTicks, total.total > previous.total {
+            // `used` is checked for monotonicity too: the counters are UInt64,
+            // and an inconsistent kernel snapshot would trap the subtraction
+            if let previous = cpuTicks, total.total > previous.total, total.used >= previous.used {
                 next.load = Double(total.used - previous.used) / Double(total.total - previous.total)
             }
             cpuTicks = total
@@ -219,7 +236,7 @@ final class SystemMetrics {
             if coreTicks.count == cores.count {
                 next.perCore = zip(cores, coreTicks).map { current, previous in
                     let deltaTotal = current.total > previous.total ? current.total - previous.total : 0
-                    guard deltaTotal > 0 else { return 0 }
+                    guard deltaTotal > 0, current.used >= previous.used else { return 0 }
                     return Double(current.used - previous.used) / Double(deltaTotal)
                 }
             } else {
@@ -343,7 +360,9 @@ final class SystemMetrics {
         ]
         var size = value
         var unit = 0
-        while size >= 1024, unit < units.count - 1 {
+        // 1023.5, not 1024: the unit switch must happen before rounding does —
+        // 1023.8 B/s used to print as "1024 B/s" instead of "1 KB/s"
+        while size >= 1023.5, unit < units.count - 1 {
             size /= 1024
             unit += 1
         }

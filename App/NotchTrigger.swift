@@ -8,6 +8,10 @@ final class NotchClickView: NSView {
     var onFilesHover: ((Bool) -> Void)?
     /// Files dropped directly on the notch — put them on the shelf without opening anything
     var onFilesDrop: (([URL]) -> Bool)?
+    /// Whether there's anywhere to drop at all: with no shelf on any board the
+    /// drag is refused up front — accepting it only to announce "Shelf is
+    /// full" over a shelf that doesn't exist was a lie
+    var acceptsFiles: (() -> Bool)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -24,7 +28,7 @@ final class NotchClickView: NSView {
     // MARK: - files
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard hasFiles(sender) else { return [] }
+        guard hasFiles(sender), acceptsFiles?() != false else { return [] }
         // The capsule expands immediately and stays open while the file hovers over
         // the notch. The panel doesn't open at all: the person is dragging a file,
         // not looking for a tile
@@ -33,7 +37,7 @@ final class NotchClickView: NSView {
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        hasFiles(sender) ? .copy : []
+        hasFiles(sender) && acceptsFiles?() != false ? .copy : []
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -72,16 +76,19 @@ final class NotchTrigger {
     private let onClick: (NSScreen) -> Void
     private let onFilesHover: (Bool) -> Void
     private let onFilesDrop: ([URL]) -> Bool
+    private let acceptsFiles: () -> Bool
     private var observer: NSObjectProtocol?
 
     init(
         onClick: @escaping (NSScreen) -> Void,
         onFilesHover: @escaping (Bool) -> Void = { _ in },
-        onFilesDrop: @escaping ([URL]) -> Bool = { _ in false }
+        onFilesDrop: @escaping ([URL]) -> Bool = { _ in false },
+        acceptsFiles: @escaping () -> Bool = { false }
     ) {
         self.onClick = onClick
         self.onFilesHover = onFilesHover
         self.onFilesDrop = onFilesDrop
+        self.acceptsFiles = acceptsFiles
         rebuild()
         // Monitors get connected/disconnected — rebuild the traps
         observer = NotificationCenter.default.addObserver(
@@ -147,6 +154,7 @@ final class NotchTrigger {
             view.onClick = { [weak self] in self?.onClick(screen) }
             view.onFilesHover = { [weak self] inside in self?.onFilesHover(inside) }
             view.onFilesDrop = { [weak self] urls in self?.onFilesDrop(urls) ?? false }
+            view.acceptsFiles = { [weak self] in self?.acceptsFiles() ?? false }
             w.contentView = view
             w.setFrame(rect, display: true)  // after contentView: constrainFrameRect is already disabled
             w.orderFrontRegardless()

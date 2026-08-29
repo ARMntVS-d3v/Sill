@@ -36,9 +36,12 @@ struct ScratchpadTileView: View {
                 }
             }
 
-            // TextEditor has a built-in 5pt line inset, which threw off any placeholder
-            // next to it. Cancel that inset with a negative padding so the text and the
-            // placeholder both start flush with the tile edge
+            // The note stays on TextEditor, unlike the translator and "Ask": a
+            // TextField with a vertical axis submits on Return instead of breaking
+            // the line (checked on a bare harness — four Returns left one line), and
+            // a note you can't press Enter in isn't a note. The price is TextEditor's
+            // own 5-pt line inset, cancelled here so the text and the hint start on
+            // the same vertical
             ZStack(alignment: .topLeading) {
                 if widget.isEmpty {
                     Text("Jot down…")

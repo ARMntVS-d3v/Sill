@@ -77,7 +77,7 @@ struct TileView: View {
         .offset(dragOffset)
         .scaleEffect(isDragging ? 1.03 : 1)
         .shadow(color: theme.shadow.color.opacity(isDragging ? 0.5 : 0), radius: 12, y: 6)
-        .animation(.easeOut(duration: 0.14), value: isDragging)
+        .animation(.easeOut(duration: Motion.hover), value: isDragging)
         .gesture(moveGesture)
         // Edit-mode jiggle, like a home screen: signals that tiles can be moved.
         // Phases differ per tile — jiggling in unison would read as mechanical.
@@ -352,7 +352,7 @@ private struct ResizeHandle: View {
         }
         .opacity(available.count > 1 ? 1 : 0.35)
         .scaleEffect(dragging ? 1.15 : 1)
-        .animation(.easeOut(duration: 0.12), value: dragging)
+        .animation(.easeOut(duration: Motion.hover), value: dragging)
         // 20-pt handle, 28-pt hit zone: dragged with a mouse, not a finger on glass
         .frame(width: TileChromeMetrics.resizeHit, height: TileChromeMetrics.resizeHit)
         .contentShape(Rectangle())
@@ -439,6 +439,25 @@ private struct TileShadow: ViewModifier {
 enum TileChromeMetrics {
     static let removeHit: CGFloat = 26
     static let resizeHit: CGFloat = 28
+    /// How far above the grid the board is allowed to draw. The remove button sits
+    /// flush with the tile's top edge, its hover ring reaches 4 pt higher, and the
+    /// jiggle lifts the top corner by about 1.5 pt more — the strip's clip cut all of
+    /// that off. Only the top is extended: the horizontal clip is what keeps the
+    /// neighbouring board out of sight while paging
+    static let topOverhang: CGFloat = 8
+}
+
+/// Rectangle extended upward: clips the board strip sideways and below, but lets
+/// the tiles' edit chrome hang over the top edge
+struct BoardClipShape: Shape {
+    let overhang: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path(
+            CGRect(
+                x: rect.minX, y: rect.minY - overhang,
+                width: rect.width, height: rect.height + overhang))
+    }
 }
 
 

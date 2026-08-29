@@ -55,9 +55,15 @@ final class IslandHostingView: NSHostingView<AnyView> {
         let height = max(IslandPresentation.shared.capsuleHeight, 1)
         guard width > 0 else { return nil }
         // The capsule sits flush with the top of the window: the window is taller than
-        // it to leave room for the capsule to expand.
+        // it to leave room for the capsule to expand. NSHostingView is flipped, so the
+        // top edge is y = 0, not bounds.maxY - height. With the unflipped formula the
+        // hit zone sat at the bottom of the window — an invisible strip under the menu
+        // bar: the compact capsule took no clicks at all, and the strip swallowed
+        // clicks meant for other apps. Only the expanded capsule (which drops into
+        // that strip) happened to work
+        let top = isFlipped ? bounds.minY : bounds.maxY - height
         let capsule = NSRect(
-            x: bounds.midX - width / 2, y: bounds.maxY - height, width: width, height: height)
+            x: bounds.midX - width / 2, y: top, width: width, height: height)
         guard capsule.contains(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
     }
@@ -73,6 +79,10 @@ final class IslandController {
     private let onClick: () -> Void
     private var tick: Task<Void, Never>?
     private var hideTask: DispatchWorkItem?
+    /// The window at full size: room for the capsule to animate inside it
+    private var fullFrame: NSRect = .zero
+    /// Shrinking the window down to the capsule once the motion settles
+    private var fitTask: DispatchWorkItem?
     private var screenObserver: NSObjectProtocol?
     /// A source sweep is in progress: defer showing until it's done. Otherwise the
     /// capsule can retract and come back within a single sweep — each source writes
@@ -84,6 +94,9 @@ final class IslandController {
     private var panelIsOpen = false
     /// Until when the capsule is still animating. While it is, we don't talk to the system
     private var animatingUntil: Date?
+    /// How often the expensive sources are swept, at most
+    private static let sweepInterval: TimeInterval = 2
+    private var lastSweep = Date.distantPast
     private var isAnimating: Bool { animatingUntil.map { Date() < $0 } ?? false }
 
 
@@ -129,27 +142,67 @@ final class IslandController {
             while !Task.isCancelled {
                 // The controller is gone — the loop must end, not spin idle
                 guard let self else { return }
+                // Panel open — everything is already on screen and present()
+                // throws the result away; don't pull IOKit and the disk for
+                // nothing. panelClosed() re-presents, the next pass sweeps.
+                // The timer is the one exception: its ring lives only in
+                // TimerActivity (the widget deliberately stays silent), and
+                // it must go off with the panel open too — a cheap defaults read
+                if panelIsOpen {
+                    TimerActivity.refresh()
+                    PomodoroActivity.refresh()
+                    try? await Task.sleep(for: .seconds(1))
+                    continue
+                }
                 // Don't touch sources while the capsule is animating: an IOKit battery
                 // request mid-retraction was exactly the stutter that made it look janky
                 let deferred = isAnimating
-                if !deferred { sweep() }
+                if !deferred {
+                    // The expensive part — IOKit for the battery, the weather cache,
+                    // the player — has nothing new to say twice a second. Between
+                    // sweeps only the sources that count time on their own are asked,
+                    // and those are a couple of UserDefaults reads
+                    if Date().timeIntervalSince(lastSweep) >= Self.sweepInterval - 0.05 {
+                        sweep()
+                        lastSweep = Date()
+                    } else {
+                        refreshCounters()
+                    }
+                }
                 present()
-                // Half a second is only needed where seconds are actually ticking by —
-                // the timer. Music, weather, and battery are fine with two: their value
-                // changes by event, not by tick. This is the only thing that runs at
-                // all while the panel is closed, so it has to be nearly free
-                let current = LiveActivityCenter.shared.current
-                let ticking = current?.id == TimerActivity.id || current?.expanded == true
-                    || current?.id == ClipboardActivity.id || current?.id == ShelfActivity.id
                 // Sweep was deferred for the animation — resume right after it ends,
                 // not after a full tick: otherwise the capsule would hang around for
                 // up to two extra seconds
-                try? await Task.sleep(
-                    for: deferred
-                        ? .seconds(max(0.06, animatingUntil?.timeIntervalSinceNow ?? 0.06))
-                        : .milliseconds(ticking ? 500 : 2000))
+                try? await Task.sleep(for: .seconds(deferred
+                    ? max(0.06, animatingUntil?.timeIntervalSinceNow ?? 0.06)
+                    : idleDelay))
             }
         }
+    }
+
+    /// How long to sleep before looking again. A counting capsule wakes exactly when
+    /// its number changes — that's one wake per visible change, landing right on it;
+    /// polling every half second showed the digits late and in uneven steps. Anything
+    /// short-lived (a confirmation, an expanded capsule) is re-checked twice a second
+    /// so it retracts on time, and an idle capsule is left alone for two
+    private var idleDelay: TimeInterval {
+        // The soonest of the two, not the first: with a timer and a pomodoro both
+        // running, sleeping on one of them would step over the other's flip
+        let counting = [TimerActivity.nextChange(), PomodoroActivity.nextChange()].compactMap { $0 }
+        if let next = counting.min() { return next }
+        let current = LiveActivityCenter.shared.current
+        let brief = current?.expanded == true || current?.id == ClipboardActivity.id
+            || current?.id == ShelfActivity.id
+        return brief ? 0.5 : Self.sweepInterval
+    }
+
+    /// Sources that count time from a timestamp and cost nothing to ask: no IOKit,
+    /// no disk, no player. Safe to call as often as the capsule redraws
+    private func refreshCounters() {
+        TimerActivity.refresh()
+        PomodoroActivity.refresh()
+        ClipboardActivity.refresh()
+        ShelfActivity.refresh()
     }
 
     /// The panel opened — the capsule hides immediately and doesn't come back.
@@ -199,10 +252,13 @@ final class IslandController {
         ShelfActivity.refresh()
         ClipboardActivity.refresh()
         TimerActivity.refresh()
+        PomodoroActivity.refresh()
         BatteryActivity.refresh()
         WeatherActivity.refresh()
         MusicActivity.refresh()
-        present()
+        // No present() here: the `sweeping` guard is still up (defer runs after
+        // the last statement), so it was always a silent no-op — the tick loop
+        // calls present() right after this returns
     }
 
     /// Show whatever is already known: no system requests at all. This is the entire
@@ -228,7 +284,8 @@ final class IslandController {
         // Cancel any pending retraction: the activity is back, the window is already on screen
         hideTask?.cancel()
         hideTask = nil
-        // The capsule's content and width live inside the view: no need to touch the window
+        // The capsule's content and width live inside the view; the window follows the
+        // measured capsule size on its own (see fit)
         IslandPresentation.shared.activity = activity
         guard !panel.isVisible else {
             IslandPresentation.shared.visible = true
@@ -283,6 +340,11 @@ final class IslandController {
         // the most expensive step on this path
         panel.setFrame(frame, display: false)
         self.panel = panel
+        fullFrame = frame
+        // The capsule reports its measured size — the window follows it, see fit(to:)
+        IslandPresentation.shared.onCapsuleSize = { [weak self] size in
+            self?.fit(to: size)
+        }
         sillLog("[island] window ready, width \(Int(width))")
     }
 
@@ -323,6 +385,46 @@ final class IslandController {
         DispatchQueue.main.asyncAfter(deadline: .now() + Motion.islandCollapse, execute: task)
     }
 
+    /// The window follows the capsule. It used to stay full size — wide enough for
+    /// the capsule to animate inside it — but an invisible margin is not free: a
+    /// window takes every click inside its frame and passes nothing through (proven
+    /// with synthetic clicks: a click beside the capsule reached neither the capsule
+    /// nor the app below). Those margins lie over the menu bar, so icons next to the
+    /// notch went dead and a strip under the menu bar swallowed clicks meant for
+    /// other apps.
+    ///
+    /// The measurement arrives with the animation's final size, not frame by frame,
+    /// so growing right away never clips a capsule that is still widening. Shrinking
+    /// waits out the motion: islandFit is longer than both the spring and the
+    /// collapse, so a retracting capsule is never cut off at the sides
+    private func fit(to size: CGSize) {
+        guard let panel, fullFrame != .zero, size.width > 0, size.height > 0 else { return }
+        let width = min(size.width, fullFrame.width)
+        let height = min(size.height, fullFrame.height)
+        fitTask?.cancel()
+        if width > panel.frame.width || height > panel.frame.height {
+            apply(width: max(width, panel.frame.width), height: max(height, panel.frame.height))
+        }
+        let task = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.fitTask = nil
+                self?.apply(width: width, height: height)
+            }
+        }
+        fitTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.islandFit, execute: task)
+    }
+
+    /// The capsule hangs from the top edge, centered on the notch — so does its window
+    private func apply(width: CGFloat, height: CGFloat) {
+        guard let panel else { return }
+        let frame = NSRect(
+            x: fullFrame.midX - width / 2, y: fullFrame.maxY - height,
+            width: width, height: height)
+        guard frame != panel.frame else { return }
+        panel.setFrame(frame, display: false)
+    }
+
     #if DEBUG
     /// Filming: the sequence is driven by hand through the activity center, so
     /// the tick and player events must not interfere — a sweep mid-take would
@@ -361,6 +463,9 @@ final class IslandController {
     private func drop() {
         hideTask?.cancel()
         hideTask = nil
+        fitTask?.cancel()
+        fitTask = nil
+        IslandPresentation.shared.onCapsuleSize = nil
         IslandPresentation.shared.visible = false
         IslandPresentation.shared.activity = nil
         panel?.orderOut(nil)

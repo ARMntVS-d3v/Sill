@@ -17,7 +17,12 @@ struct ThemeColor: Codable, Sendable, Equatable {
 
     var color: Color {
         var value: UInt64 = 0
-        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        // Shorthand #fff / #fffa expands to full form: read as RRGGBB it
+        // silently produced dark blue instead of white
+        if cleaned.count == 3 || cleaned.count == 4 {
+            cleaned = cleaned.map { "\($0)\($0)" }.joined()
+        }
         guard Scanner(string: cleaned).scanHexInt64(&value) else { return .pink }
         let r, g, b, a: Double
         if cleaned.count == 8 {
@@ -138,6 +143,7 @@ final class ThemeEngine {
     func select(name: String) {
         currentName = name
         current = available[name] ?? .fallback
+        currentLoaded = available[name] != nil
         UserDefaults.standard.set(name, forKey: "appearance.theme")
     }
 
@@ -157,14 +163,35 @@ final class ThemeEngine {
             guard let data = try? Data(contentsOf: url) else { continue }
             do {
                 let theme = try JSONDecoder().decode(Theme.self, from: data)
-                themes[theme.name] = theme
+                // Indexed by file name, as the docs promise: indexing by the
+                // inner `name` field let a copied file with a new file name
+                // silently displace the original it still named inside
+                let key = url.deletingPathExtension().lastPathComponent
+                if theme.name != key {
+                    sillLog("[theme] \(url.lastPathComponent) names itself \"\(theme.name)\" — listed as \(key)")
+                }
+                themes[key] = theme
             } catch {
                 sillLog("[theme] failed to load \(url.lastPathComponent): \(error)")
             }
         }
         available = themes
-        current = themes[currentName] ?? .fallback
+        // A theme that stopped parsing (someone is editing its JSON) keeps the
+        // previous in-memory colors instead of snapping to the fallback: the
+        // author sees their own theme while fixing it, as architecture.md promises.
+        // The fallback only applies when there's nothing kept yet — first load
+        if let found = themes[currentName] {
+            current = found
+            currentLoaded = true
+        } else if !currentLoaded {
+            current = .fallback
+        }
     }
+
+    /// Whether `current` ever held the real theme named `currentName` — the
+    /// keep-previous-colors rule above needs this; comparing names can't tell
+    /// a kept theme from a never-loaded one
+    @ObservationIgnored private var currentLoaded = false
 
     private func startWatching() {
         let fd = open(Self.userThemesDir.path, O_EVTONLY)

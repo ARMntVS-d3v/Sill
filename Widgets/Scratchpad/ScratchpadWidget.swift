@@ -15,17 +15,34 @@ final class ScratchpadWidget: Widget {
     )
 
     private let context: WidgetContext
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     var text: String {
         didSet {
             guard text != oldValue else { return }
-            context.settings.set("text", text)
+            // Debounced like the provider key field: encoding the whole note
+            // into JSON and writing UserDefaults on every keystroke is wasted
+            // work exactly while the person is typing
+            saveTask?.cancel()
+            saveTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, let self else { return }
+                context.settings.set("text", text)
+            }
         }
     }
 
     init(context: WidgetContext) {
         self.context = context
         text = context.settings.get("text", as: String.self) ?? ""
+    }
+
+    /// Whatever is still in the debounce window gets written before the widget
+    /// sleeps — closing the panel right after typing must not lose the tail
+    func deactivate() {
+        saveTask?.cancel()
+        saveTask = nil
+        context.settings.set("text", text)
     }
 
     var body: AnyView {

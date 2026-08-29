@@ -181,12 +181,84 @@
         }
       }
     },
+    "%lld min": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld мин"
+          }
+        }
+      }
+    },
     "%lld of %lld": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld из %lld"
+          }
+        }
+      }
+    },
+    "%lld today": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сегодня %lld"
+          }
+        }
+      }
+    },
+    "%lld widgets": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld widget"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld widgets"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld виджет"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld виджета"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld виджетов"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld виджета"
+                }
+              }
+            }
           }
         }
       }
@@ -391,6 +463,16 @@
         }
       }
     },
+    "Access denied. Allow Sill under Privacy & Security → Accessibility": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ запрещён. Разрешите Sill в «Конфиденциальность и безопасность» → «Универсальный доступ»"
+          }
+        }
+      }
+    },
     "Accessibility access needed": {
       "localizations": {
         "ru": {
@@ -511,6 +593,16 @@
         }
       }
     },
+    "App language": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Язык приложения"
+          }
+        }
+      }
+    },
     "Appearance": {
       "localizations": {
         "ru": {
@@ -611,6 +703,26 @@
         }
       }
     },
+    "Back to work": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снова за работу"
+          }
+        }
+      }
+    },
+    "Backlight": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсветка"
+          }
+        }
+      }
+    },
     "Bare": {
       "localizations": {
         "ru": {
@@ -661,12 +773,22 @@
         }
       }
     },
-    "Board Name": {
+    "Boards": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Название борда"
+            "value": "Борды"
+          }
+        }
+      }
+    },
+    "Break": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перерыв"
           }
         }
       }
@@ -861,6 +983,16 @@
         }
       }
     },
+    "Coins in": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Монеты в"
+          }
+        }
+      }
+    },
     "Contacts access needed": {
       "localizations": {
         "ru": {
@@ -971,6 +1103,26 @@
         }
       }
     },
+    "Currencies and coins can be shown in different ones: the central bank rate comes in rubles, coins are quoted in dollars": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Валюты и монеты можно показывать в разном: курс ЦБ приходит в рублях, монеты в мире котируются в долларах"
+          }
+        }
+      }
+    },
+    "Currencies in": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Валюты в"
+          }
+        }
+      }
+    },
     "Currencies use the official Russian Central Bank rate, coins use CoinGecko prices in rubles. Both work without a key": {
       "localizations": {
         "ru": {
@@ -1017,16 +1169,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Удалить"
-          }
-        }
-      }
-    },
-    "Delete Board": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить борд"
           }
         }
       }
@@ -1117,6 +1259,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Двойной клик — вернуть в буфер обмена"
+          }
+        }
+      }
+    },
+    "Download language": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачать язык"
           }
         }
       }
@@ -1231,16 +1383,6 @@
         }
       }
     },
-    "Everything else is calculated in it. The central bank rate comes in rubles; dollar and euro are converted through it": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В ней считается всё остальное. Курс ЦБ приходит в рублях, доллар и евро пересчитываются через него"
-          }
-        }
-      }
-    },
     "Expand on F7 / F8 / F9": {
       "localizations": {
         "ru": {
@@ -1297,6 +1439,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ровные"
+          }
+        }
+      }
+    },
+    "Focus": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работа"
           }
         }
       }
@@ -1661,6 +1813,16 @@
         }
       }
     },
+    "Media": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиа"
+          }
+        }
+      }
+    },
     "Medium": {
       "localizations": {
         "ru": {
@@ -1721,26 +1883,6 @@
         }
       }
     },
-    "Move Left": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переместить левее"
-          }
-        }
-      }
-    },
-    "Move Right": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переместить правее"
-          }
-        }
-      }
-    },
     "Move back to list": {
       "localizations": {
         "ru": {
@@ -1761,12 +1903,12 @@
         }
       }
     },
-    "Needs Universal Control access — otherwise the capsule won't expand": {
+    "Needs Accessibility access — otherwise the capsule won't expand": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нужен доступ к Универсальному управлению — иначе капсула не раскрывается"
+            "value": "Нужен «Универсальный доступ» — иначе капсула не раскроется"
           }
         }
       }
@@ -2091,6 +2233,16 @@
         }
       }
     },
+    "Pomodoro": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помодоро"
+          }
+        }
+      }
+    },
     "Press…": {
       "localizations": {
         "ru": {
@@ -2261,16 +2413,6 @@
         }
       }
     },
-    "Rename…": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переименовать…"
-          }
-        }
-      }
-    },
     "Renderer": {
       "localizations": {
         "ru": {
@@ -2401,16 +2543,6 @@
         }
       }
     },
-    "Selected": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выбран"
-          }
-        }
-      }
-    },
     "Set": {
       "localizations": {
         "ru": {
@@ -2501,12 +2633,12 @@
         }
       }
     },
-    "Show in": {
+    "Show at the notch": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показывать в"
+            "value": "Показывать у выреза"
           }
         }
       }
@@ -2567,6 +2699,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Настройки Sill"
+          }
+        }
+      }
+    },
+    "Sill restarts to apply": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sill перезапустится, чтобы применить"
           }
         }
       }
@@ -2711,12 +2853,32 @@
         }
       }
     },
+    "System": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        }
+      }
+    },
     "TB": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
             "value": "ТБ"
+          }
+        }
+      }
+    },
+    "Taken by another app": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Занято другим приложением"
           }
         }
       }
@@ -2797,6 +2959,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Клик по вырезу перестанет работать до следующего запуска"
+          }
+        }
+      }
+    },
+    "The order here is the order of the dots in the wing and the order swiping pages through them": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок здесь — это порядок точек в крыле и порядок листания"
+          }
+        }
+      }
+    },
+    "The phase changes on its own and says so at the notch, even with the panel closed": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фаза меняется сама и сообщает об этом у выреза, даже когда панель закрыта"
+          }
+        }
+      }
+    },
+    "The phase left, in the capsule by the cutout": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько осталось до смены фазы"
           }
         }
       }
@@ -2907,6 +3099,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tiler"
+          }
+        }
+      }
+    },
+    "Time for a break": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пора отдохнуть"
           }
         }
       }
@@ -3101,6 +3303,16 @@
         }
       }
     },
+    "Used by the capsule and by tiles without a city of their own": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его показывает капсула и плитки, у которых не выбран свой город"
+          }
+        }
+      }
+    },
     "Weather": {
       "localizations": {
         "ru": {
@@ -3221,16 +3433,6 @@
         }
       }
     },
-    "base currency": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "основная валюта"
-          }
-        }
-      }
-    },
     "battery": {
       "localizations": {
         "ru": {
@@ -3247,6 +3449,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "батарея · %@"
+          }
+        }
+      }
+    },
+    "boards": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "борды"
           }
         }
       }
@@ -3327,6 +3539,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "циклов"
+          }
+        }
+      }
+    },
+    "default city": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "основной город"
           }
         }
       }
@@ -3427,6 +3649,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "папка"
+          }
+        }
+      }
+    },
+    "follows the clipboard setting": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "живёт по настройке буфера"
           }
         }
       }
@@ -3541,12 +3773,42 @@
         }
       }
     },
+    "language": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "язык"
+          }
+        }
+      }
+    },
+    "lengths": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "длительности"
+          }
+        }
+      }
+    },
     "load": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
             "value": "загрузка"
+          }
+        }
+      }
+    },
+    "media": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "медиа"
           }
         }
       }
@@ -3771,6 +4033,16 @@
         }
       }
     },
+    "rest until you start again": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "отдыхайте, пока не начнёте снова"
+          }
+        }
+      }
+    },
     "sent this session": {
       "localizations": {
         "ru": {
@@ -3787,6 +4059,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "показывать"
+          }
+        }
+      }
+    },
+    "shown in": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "в чём показывать"
           }
         }
       }
@@ -3827,6 +4109,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "листает борды"
+          }
+        }
+      }
+    },
+    "tap play to start": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "нажмите, чтобы начать"
           }
         }
       }
@@ -3941,6 +4233,26 @@
         }
       }
     },
+    "weather city": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "город погоды"
+          }
+        }
+      }
+    },
+    "weather.clear": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ясно"
+          }
+        }
+      }
+    },
     "what else shows up at the notch": {
       "localizations": {
         "ru": {
@@ -4027,106 +4339,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "⏎"
-          }
-        }
-      }
-    },
-    "weather.clear": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ясно"
-          }
-        }
-      }
-    },
-    "language": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "язык"
-          }
-        }
-      }
-    },
-    "App language": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Язык приложения"
-          }
-        }
-      }
-    },
-    "Sill restarts to apply": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sill перезапустится, чтобы применить"
-          }
-        }
-      }
-    },
-    "System": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системный"
-          }
-        }
-      }
-    },
-    "weather city": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "город погоды"
-          }
-        }
-      }
-    },
-    "Used by the capsule and by tiles without a city of their own": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Его показывает капсула и плитки, у которых не выбран свой город"
-          }
-        }
-      }
-    },
-    "default city": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "основной город"
-          }
-        }
-      }
-    },
-    "Media": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Медиа"
-          }
-        }
-      }
-    },
-    "media": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "медиа"
           }
         }
       }

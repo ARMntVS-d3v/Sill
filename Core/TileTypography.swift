@@ -75,6 +75,12 @@ enum TileMetrics {
     static let trackHeight: CGFloat = 3
     /// Width of the left column in a rectangle tile: primary content left, details right
     static let sideColumn: CGFloat = 104
+    /// Step between rows of the dense number table in system metrics. Denser than
+    /// rowGap: five metrics with bars have to fit a 152-pt square
+    static let meterGap: CGFloat = 7
+    /// The same table when even that doesn't fit — with a battery there are five
+    /// rows, and on a longer locale they ran off the tile edge
+    static let meterGapDense: CGFloat = 4
 }
 
 // Round control buttons inside a tile: player, timer. Diameter depends on
@@ -93,6 +99,10 @@ enum TileControlMetrics {
 
     /// Secondary: next track, reset timer — 6 smaller than primary
     static func secondary(_ size: TileSize) -> CGFloat { primary(size) - 6 }
+
+    /// Clear button inside an input field (13-pt circled cross): the hit zone is
+    /// the same as a button in a list row
+    static let fieldClearHit: CGFloat = 20
 
     /// Gap between buttons
     static func gap(_ size: TileSize) -> CGFloat {

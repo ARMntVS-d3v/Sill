@@ -203,7 +203,7 @@ private struct Scrubber: View {
                     })
         }
         .frame(height: 14)
-        .animation(.easeOut(duration: 0.12), value: thickness)
+        .animation(.easeOut(duration: Motion.hover), value: thickness)
         .onHover { hovered = $0 }
         .help("Seek")
         .tileControl()
@@ -297,7 +297,7 @@ private struct MusicSmallView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .animation(.easeOut(duration: 0.14), value: hovered)
+        .animation(.easeOut(duration: Motion.hover), value: hovered)
         .onHover { hovered = $0 }
     }
 }

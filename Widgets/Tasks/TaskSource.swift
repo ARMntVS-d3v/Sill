@@ -1,6 +1,7 @@
 import AppKit
 import EventKit
 import Foundation
+import os
 
 // One task — shared shape for Reminders and Things
 struct TaskItem: Identifiable, Sendable, Codable {
@@ -29,9 +30,19 @@ protocol TaskSource: AnyObject {
     static var appName: String { get }
     static var permission: PermissionKind { get }
     var isAvailable: Bool { get }
+    /// Whether reading right now is allowed. Things says no while the app
+    /// isn't running: scripting a closed app launches it, and we never open
+    /// an app nobody asked for (same rule that removed "play" in empty music)
+    var isReady: Bool { get }
     func load() async throws -> [TaskItem]
-    func setCompleted(id: String, _ value: Bool) async
+    /// Whether the change actually landed. Showing a checkmark for a write
+    /// that silently failed meant the row came back unchecked six seconds later
+    func setCompleted(id: String, _ value: Bool) async -> Bool
     func openApp()
+}
+
+extension TaskSource {
+    var isReady: Bool { true }
 }
 
 // MARK: - Apple Reminders
@@ -89,10 +100,19 @@ final class RemindersSource: TaskSource {
                 })
     }
 
-    func setCompleted(id: String, _ value: Bool) async {
-        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { return }
+    func setCompleted(id: String, _ value: Bool) async -> Bool {
+        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
+            sillLog("[tasks] reminder \(id) not found — access revoked?")
+            return false
+        }
         reminder.isCompleted = value
-        try? store.save(reminder, commit: true)
+        do {
+            try store.save(reminder, commit: true)
+            return true
+        } catch {
+            sillLog("[tasks] saving reminder failed: \(error)")
+            return false
+        }
     }
 
     func openApp() {
@@ -124,8 +144,16 @@ final class ThingsSource: TaskSource {
     private static var inFlight: Task<[TaskItem], Error>?
     private static let freshness: TimeInterval = 5
 
+    private static let bundleID = "com.culturedcode.ThingsMac"
+
     var isAvailable: Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.culturedcode.ThingsMac") != nil
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleID) != nil
+    }
+
+    /// `tell application` launches a closed app — reading must wait for Things
+    /// to be running, or the widget silently starts it in the background
+    var isReady: Bool {
+        !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty
     }
 
     func load() async throws -> [TaskItem] {
@@ -203,23 +231,51 @@ final class ThingsSource: TaskSource {
             }
     }
 
-    func setCompleted(id: String, _ value: Bool) async {
+    func setCompleted(id: String, _ value: Bool) async -> Bool {
         let script = """
         tell application "Things3"
             set status of to do id "\(id)" to \(value ? "completed" : "open")
         end tell
         """
-        _ = try? await Self.run(script)
-        Self.cache = nil
+        do {
+            _ = try await Self.run(script)
+            Self.cache = nil
+            return true
+        } catch {
+            sillLog("[things] setting status failed: \(error)")
+            return false
+        }
     }
 
     func openApp() {
         if let url = URL(string: "things:///show?id=today") { NSWorkspace.shared.open(url) }
     }
 
-    // AppleScript is synchronous and slow — keep it off the main thread
+    enum ThingsError: Error {
+        case script(Int)
+        case timedOut
+    }
+
+    /// How long a script may take before the widget gives up on it. The hung
+    /// call itself can't be cancelled (NSAppleScript is synchronous), but the
+    /// await must not hang with it: one stuck Things call used to freeze the
+    /// source — and the shared inFlight task with it — until app restart
+    private static let scriptTimeout: TimeInterval = 10
+
+    // AppleScript is synchronous and slow — keep it off the main thread.
+    // A task group can't race it against a deadline: the group waits for the
+    // uncancellable child, so the timeout is done with a resume-once lock
     private static func run(_ source: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
+            let once = OSAllocatedUnfairLock(initialState: false)
+            let finish: @Sendable (Result<String, Error>) -> Void = { result in
+                let first = once.withLock { done -> Bool in
+                    if done { return false }
+                    done = true
+                    return true
+                }
+                if first { continuation.resume(with: result) }
+            }
             DispatchQueue.global(qos: .userInitiated).async {
                 var error: NSDictionary?
                 let script = NSAppleScript(source: source)
@@ -228,13 +284,18 @@ final class ThingsSource: TaskSource {
                     let code = error[NSAppleScript.errorNumber] as? Int ?? 0
                     // -1743: user has not granted permission to control the app
                     if code == -1743 {
-                        continuation.resume(throwing: WidgetError.permissionDenied(.automation))
+                        finish(.failure(WidgetError.permissionDenied(.automation)))
                     } else {
-                        continuation.resume(returning: "")
+                        // Any other error is an error, not an empty task list:
+                        // "" used to decode into [] and the tile said "All done"
+                        finish(.failure(ThingsError.script(code)))
                     }
                     return
                 }
-                continuation.resume(returning: result?.stringValue ?? "")
+                finish(.success(result?.stringValue ?? ""))
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.scriptTimeout) {
+                finish(.failure(ThingsError.timedOut))
             }
         }
     }

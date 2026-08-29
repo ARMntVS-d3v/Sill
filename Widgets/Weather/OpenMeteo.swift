@@ -85,8 +85,32 @@ enum OpenMeteo {
             URLQueryItem(name: "format", value: "json"),
         ]
         guard let url = components.url else { throw OpenMeteoError.badResponse }
-        let (data, _) = try await session.data(from: url)
+        let (data, response) = try await session.data(from: url)
+        // An HTTP error must throw, not decode: Open-Meteo's error body
+        // ({"error":true,...}) has no `results`, and it used to decode into an
+        // empty list — a network failure looked like "nothing found"
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw OpenMeteoError.badResponse
+        }
         return (try JSONDecoder().decode(GeocodingResponse.self, from: data)).results ?? []
+    }
+
+    /// A first guess at the city, with nothing asked of the person: the system's
+    /// time zone already names one ("Europe/Moscow"), and the geocoder turns that
+    /// name into a place with coordinates. No permission, no third-party service —
+    /// CoreLocation would ask for location access, and IP geolocation hands the
+    /// address to someone else and points at the VPN's exit anyway. The guess is a
+    /// starting point, not a verdict: the city is still pickable in the tile and in
+    /// settings
+    nonisolated static func guessPlace() async -> Place? {
+        let identifier = TimeZone.current.identifier
+        // Only "Region/City" identifiers name a place; UTC and GMT+3 don't
+        guard let city = identifier.split(separator: "/").last, identifier.contains("/") else {
+            return nil
+        }
+        let name = city.replacingOccurrences(of: "_", with: " ")
+        guard let found = try? await search(city: name) else { return nil }
+        return found.first
     }
 
     nonisolated static func forecast(for place: Place) async throws -> WeatherSnapshot {

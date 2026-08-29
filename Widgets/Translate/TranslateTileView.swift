@@ -81,10 +81,11 @@ struct TranslateTileView: View {
                 .padding(.vertical, 6)
             result
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            // In the square, buttons are icon-only — with labels they don't fit
+            // In the square, buttons are icon-only — with labels they don't fit.
+            // Clearing lives in the field itself, next to the text it clears
             HStack(spacing: 10) {
-                if !widget.isEmpty {
-                    ActionButton(icon: "xmark", title: nil) { widget.clear() }
+                if widget.packMissing {
+                    ActionButton(icon: "arrow.down.circle", title: nil) { widget.downloadPack() }
                 }
                 Spacer(minLength: 0)
                 if !widget.output.isEmpty {
@@ -128,29 +129,19 @@ struct TranslateTileView: View {
 
     // MARK: - parts
 
-    /// Input field: the placeholder is drawn underneath at the same size,
-    /// otherwise it sits out of line with the cursor (docs/standards.md, "empty states")
+    /// Input field — one component for the whole app (see TileTextField): the hint
+    /// sits under the field, and the caret lands exactly on it
     private var field: some View {
-        ZStack(alignment: .topLeading) {
-            if widget.isEmpty {
-                Text("Text to translate")
-                    .font(TileFont.row)
-                    .foregroundStyle(theme.textMuted.color)
-                    .allowsHitTesting(false)
-                    .padding(.top, 1)
-            }
-            TextEditor(text: Binding(get: { widget.input }, set: { widget.input = $0 }))
-                .font(TileFont.row)
-                .foregroundStyle(theme.textPrimary.color)
-                .scrollContentBackground(.hidden)
-                .background(.clear)
-                // TextEditor has its own 5-point line inset — cancel it so the text
-                // and the placeholder align on the same vertical
-                .padding(.leading, -5)
-                .focused($focused)
-                .releasesFocusOnHide($focused)
-                .onChange(of: widget.input) { _, _ in widget.retranslate() }
-        }
+        TileTextField(
+            text: Binding(get: { widget.input }, set: { widget.input = $0 }),
+            placeholder: String(localized: "Text to translate"),
+            lines: 1...(size == .small ? 3 : 4),
+            focus: $focused,
+            onClear: widget.isEmpty ? nil : { widget.clear() },
+            // Return doesn't wait out the debounce — the model path is slow enough
+            onSubmit: { widget.translateNow() }
+        )
+        .onChange(of: widget.input) { _, _ in widget.retranslate() }
         .tileControl()
     }
 
@@ -176,8 +167,12 @@ struct TranslateTileView: View {
 
     private var actions: some View {
         HStack(spacing: 12) {
-            if !widget.isEmpty {
-                ActionButton(icon: "xmark", title: nil) { widget.clear() }
+            // Download the missing pack — the only way out of "no RU → EN pack".
+            // The system window is shown by our own press, never on its own
+            if widget.packMissing {
+                ActionButton(icon: "arrow.down.circle", title: String(localized: "Download language")) {
+                    widget.downloadPack()
+                }
             }
             Spacer(minLength: 0)
             if !widget.output.isEmpty {

@@ -275,6 +275,14 @@ dragging: a tile is dragged by its background, not by a button.
 Without the mark the element will keep working, but in edit mode the tile will slide
 out from under the finger when they try to use it.
 
+## persisted state
+
+Anything stored on disk (widget state, config, cache) decodes by hand, field by
+field, with `decodeIfPresent` and a default for every value. Swift's synthesized
+decoder does **not** fall back to a property's default when the key is missing — it
+throws, and one added field silently wipes every record written by the previous
+version. That is how a new `counted` flag emptied the notch of every pomodoro at once.
+
 ## check before shipping
 
 ```bash

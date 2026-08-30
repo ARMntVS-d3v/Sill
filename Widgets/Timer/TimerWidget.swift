@@ -30,6 +30,19 @@ final class TimerWidget: Widget {
         var accumulated: TimeInterval = 0
         /// The timer's set duration
         var duration: TimeInterval = 5 * 60
+
+        init() {}
+
+        /// Same tolerance as the pomodoro's state, and for the same reason: a record
+        /// written before a field existed has to keep loading. Swift's synthesized
+        /// decoder throws on a missing key instead of using the default
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            mode = try values.decodeIfPresent(Mode.self, forKey: .mode) ?? .timer
+            startedAt = try values.decodeIfPresent(Date.self, forKey: .startedAt)
+            accumulated = try values.decodeIfPresent(TimeInterval.self, forKey: .accumulated) ?? 0
+            duration = try values.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 5 * 60
+        }
     }
 
     private let context: WidgetContext

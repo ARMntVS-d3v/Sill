@@ -49,6 +49,25 @@ final class PomodoroWidget: Widget {
         func duration(of phase: Phase) -> TimeInterval { phase == .work ? work : rest }
 
         var duration: TimeInterval { duration(of: phase) }
+
+        init() {}
+
+        /// Decoded field by field, every one of them optional. Swift's synthesized
+        /// decoder does NOT fall back to a property's default when the key is missing
+        /// — it throws. Adding `counted` therefore broke every state written by the
+        /// previous build: the tile lost its phase and the day's count, and the notch
+        /// lost the pomodoro entirely, because the whole dictionary failed to decode
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            phase = try values.decodeIfPresent(Phase.self, forKey: .phase) ?? .work
+            startedAt = try values.decodeIfPresent(Date.self, forKey: .startedAt)
+            accumulated = try values.decodeIfPresent(TimeInterval.self, forKey: .accumulated) ?? 0
+            work = try values.decodeIfPresent(TimeInterval.self, forKey: .work) ?? 25 * 60
+            rest = try values.decodeIfPresent(TimeInterval.self, forKey: .rest) ?? 5 * 60
+            done = try values.decodeIfPresent(Int.self, forKey: .done) ?? 0
+            day = try values.decodeIfPresent(Date.self, forKey: .day) ?? .distantPast
+            counted = try values.decodeIfPresent(Bool.self, forKey: .counted) ?? false
+        }
     }
 
     private let context: WidgetContext

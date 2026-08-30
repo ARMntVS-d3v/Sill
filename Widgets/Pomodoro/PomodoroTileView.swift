@@ -133,6 +133,13 @@ struct PomodoroTileView: View {
                     diameter: TileControlMetrics.secondary(size)
                 ) { widget.skip() }
 
+                // Restart is on every size: starting this stretch over is the
+                // second thing anyone wants after pausing
+                PomodoroButton(
+                    icon: "arrow.counterclockwise", tint: accent, primary: false,
+                    diameter: TileControlMetrics.secondary(size)
+                ) { widget.restart() }
+
                 Spacer(minLength: 0)
             }
         }

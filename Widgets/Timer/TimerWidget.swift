@@ -54,6 +54,7 @@ final class TimerWidget: Widget {
     init(context: WidgetContext) {
         self.context = context
         state = context.settings.get("state", as: State.self) ?? State()
+        republish()
         context.schedule(every: .seconds(1)) { [weak self] in
             guard let self else { return }
             // A stopped timer shouldn't tick: redrawing the tile every second for
@@ -67,6 +68,15 @@ final class TimerWidget: Widget {
     func activate() async throws {
         now = Date()
         checkFinish()
+        republish()
+    }
+
+    /// Put the running state back in front of the island — same reason as the
+    /// pomodoro's: the capsule reads one key, written only when something happens,
+    /// and a state lost between launches left the notch empty while the timer ran
+    private func republish() {
+        guard state.startedAt != nil else { return }
+        TimerActivity.publish(state, for: context.tileID)
     }
 
     // MARK: - controls

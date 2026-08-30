@@ -30,8 +30,8 @@ enum BatteryActivity {
         // Power source switched — that's the event
         if let lastPlugged, lastPlugged != battery.plugged {
             event = battery.plugged
-                ? ("battery.100.bolt", "\(battery.percent)%", .green, 12)
-                : (BatteryWidget.icon(for: battery), "\(battery.percent)%", .white, 12)
+                ? ("battery.100.bolt", "\(battery.percent)%", .green, LiveActivity.Priority.batteryEvent)
+                : (BatteryWidget.icon(for: battery), "\(battery.percent)%", .white, LiveActivity.Priority.batteryEvent)
         }
         lastPlugged = battery.plugged
 
@@ -40,7 +40,7 @@ enum BatteryActivity {
         if let previous = lastPercent, !battery.plugged,
            let crossed = Self.thresholds.first(where: { previous > $0 && battery.percent <= $0 }) {
             _ = crossed
-            event = (BatteryWidget.icon(for: battery), "\(battery.percent)%", .red, 30)
+            event = (BatteryWidget.icon(for: battery), "\(battery.percent)%", .red, LiveActivity.Priority.batteryLow)
         }
         lastPercent = battery.percent
 
@@ -72,7 +72,7 @@ enum BatteryActivity {
         LiveActivityCenter.shared.update(
             LiveActivity(
                 id: id, icon: "battery.100.bolt", value: "\(percent)%",
-                tint: .green, priority: 12))
+                tint: .green, priority: LiveActivity.Priority.batteryEvent))
     }
     #endif
 }

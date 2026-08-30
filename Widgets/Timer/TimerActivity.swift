@@ -80,7 +80,8 @@ enum TimerActivity {
                 // recognize the timer on the island. A finished timer blinks white on orange
                 tint: finished ? .white : .orange,
                 // A finished timer outranks a running one — it needs to be noticed
-                priority: finished ? 20 : 10))
+                priority: finished
+                    ? LiveActivity.Priority.countdownDone : LiveActivity.Priority.countdown))
     }
 
     /// How long until the number on the capsule changes. The island sleeps exactly

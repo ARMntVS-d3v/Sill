@@ -23,7 +23,9 @@ struct LiveActivity: Equatable, Identifiable {
     /// The bars only move while something is actually playing
     var animated = true
     var tint: Color = .white
-    /// Higher means more important: an active timer outranks a quiet one
+    /// Higher means more important: an active timer outranks a quiet one.
+    /// The whole ladder is in `LiveActivity.Priority` — one place, so the answer to
+    /// "why is that one on top" doesn't have to be assembled from six files
     var priority: Int = 0
     /// Second line in the expanded view: the artist
     var subtitle: String?
@@ -33,6 +35,36 @@ struct LiveActivity: Equatable, Identifiable {
     /// iPhone handles a track change: the island expands for a couple seconds
     /// and collapses back
     var expanded = false
+}
+
+extension LiveActivity {
+    /// Who gets the capsule when several sources have something to say. Sorted by
+    /// how much the person is waiting for it right now:
+    /// an answer to what they just did, then a deadline they are counting on,
+    /// then things they'd notice anyway without looking at the notch.
+    ///
+    /// A running countdown outranks music on purpose: music can be heard, a timer
+    /// cannot. A track change still expands the capsule — just not over a timer.
+    enum Priority {
+        /// A file is being dragged onto the notch right now
+        static let shelfDrop = 70
+        /// Confirmation of a keypress: "Copied"
+        static let copied = 60
+        /// A timer or pomodoro has rung and is waiting to be picked up
+        static let countdownDone = 50
+        /// A running countdown: the deadline the person is waiting on
+        static let countdown = 30
+        /// A battery threshold crossed on battery power — worth interrupting for
+        static let batteryLow = 30
+        /// Track changed or playback toggled, for a couple of seconds
+        static let musicEvent = 20
+        /// Power plugged in or unplugged
+        static let batteryEvent = 12
+        /// Rain on the horizon
+        static let weather = 5
+        /// Something is playing — background, it can be heard without looking
+        static let musicPlaying = 3
+    }
 }
 
 // When a seconds label next changes. The value on the capsule is computed from a

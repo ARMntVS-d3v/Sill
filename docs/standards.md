@@ -275,6 +275,14 @@ dragging: a tile is dragged by its background, not by a button.
 Without the mark the element will keep working, but in edit mode the tile will slide
 out from under the finger when they try to use it.
 
+## the notch capsule: who wins
+
+One activity is on screen at a time, and the order lives in `LiveActivity.Priority`
+(Core/LiveActivity.swift) — never as a number typed at the call site. Sorted by how
+much the person is waiting for it: an answer to what they just did, then a deadline
+they are counting on, then what they'd notice anyway. A running countdown outranks
+music on purpose — music can be heard, a timer cannot.
+
 ## persisted state
 
 Anything stored on disk (widget state, config, cache) decodes by hand, field by

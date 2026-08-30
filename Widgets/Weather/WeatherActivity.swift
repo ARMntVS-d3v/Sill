@@ -50,7 +50,7 @@ enum WeatherActivity {
                         .minute(.twoDigits)),
                 tint: Color(red: 0.39, green: 0.72, blue: 1),
                 // Quieter than the timer: rain is worth noticing, but it's not urgent
-                priority: 5))
+                priority: LiveActivity.Priority.weather))
     }
 
     private static func nearestPrecipitation(mode: AppSettings.WeatherAlert) -> (

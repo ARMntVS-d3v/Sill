@@ -78,6 +78,7 @@ final class PomodoroWidget: Widget {
         self.context = context
         state = context.settings.get("state", as: State.self) ?? State()
         applySettings()
+        republish()
         context.schedule(every: .seconds(1)) { [weak self] in
             guard let self, isRunning else { return }
             now = Date()
@@ -89,6 +90,16 @@ final class PomodoroWidget: Widget {
         applySettings()
         now = Date()
         countFinish()
+        republish()
+    }
+
+    /// Put the running state back in front of the island. The capsule reads one
+    /// UserDefaults key, and that key is only written when something happens — so a
+    /// state lost between launches (a purge, a config swapped underneath) left the
+    /// notch empty while the tile counted on. Waking the tile heals it
+    private func republish() {
+        guard state.startedAt != nil else { return }
+        PomodoroActivity.publish(state, for: context.tileID)
     }
 
     /// Lengths are shared by every pomodoro tile: they are set in Settings, and a

@@ -28,7 +28,7 @@ enum ShelfActivity {
                 tint: full ? Color(red: 1, green: 0.62, blue: 0.04)
                     : Color(red: 0.04, green: 0.52, blue: 1),
                 // Highest priority: this is a direct response to a gesture happening right now
-                priority: 70,
+                priority: LiveActivity.Priority.shelfDrop,
                 expanded: true))
     }
 

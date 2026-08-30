@@ -23,7 +23,7 @@ enum ClipboardActivity {
                 // and the confirmation would read as a battery event
                 tint: .white,
                 // Above everything: this answers a human action, they're waiting on it right now
-                priority: 60,
+                priority: LiveActivity.Priority.copied,
                 expanded: true))
     }
 

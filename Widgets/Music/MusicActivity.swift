@@ -106,11 +106,11 @@ enum MusicActivity {
                 showsEqualizer: true,
                 animated: track.isPlaying,
                 tint: .white,
-                // Usually below the timer and battery: music can be heard
-                // without looking. But while expanding, music outranks
-                // everything else — it drops BELOW and doesn't crowd out
-                // other activity — the capsule returns to it in a couple of seconds
-                priority: event != nil ? 40 : 3,
+                // Below a running countdown either way: music can be heard, a
+                // timer cannot. A track change still lifts music above the quiet
+                // things (weather, a plugged-in cable) for a couple of seconds
+                priority: event != nil
+                    ? LiveActivity.Priority.musicEvent : LiveActivity.Priority.musicPlaying,
                 subtitle: track.artist,
                 stateIcon: event?.kind.icon,
                 expanded: event != nil))

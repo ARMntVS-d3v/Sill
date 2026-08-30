@@ -76,7 +76,8 @@ enum PomodoroActivity {
                 // green while working, blue while resting
                 tint: soonest.phase == .work ? .green : .cyan,
                 // A phase waiting to be picked up outranks one still running
-                priority: done ? 20 : 10))
+                priority: done
+                    ? LiveActivity.Priority.countdownDone : LiveActivity.Priority.countdown))
     }
 
     /// What each tile shows and how much of it is left. Nothing is written back: the

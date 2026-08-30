@@ -46,6 +46,8 @@ enum PomodoroActivity {
         for state in running where state.left <= 0 {
             guard announced[state.tileID] != state.phaseStart else { continue }
             announced[state.tileID] = state.phaseStart
+            // The capsule says it out loud for a moment, then settles into the bell
+            expandedUntil[state.tileID] = Date().addingTimeInterval(Motion.signalHold)
             sillLog("[pomodoro] \(state.phase.rawValue) ended")
             if let sound = NSSound(named: "Glass") {
                 sound.play()
@@ -63,21 +65,31 @@ enum PomodoroActivity {
             return
         }
         // A phase that has run out waits for a decision — the next one doesn't start
-        // by itself, so the capsule rings a bell instead of counting on
+        // by itself. While it waits, the capsule already wears the phase that is
+        // coming: its icon, its color, its length, the same as the tile
         let done = soonest.left <= 0
+        let next = soonest.phase.other
+        let waiting = done ? next : soonest.phase
+        // Work and break are told apart by color before the icon is read:
+        // green for work, blue for the break
+        let tint: Color = waiting == .work ? .green : .cyan
+        let announcing = done && (expandedUntil[soonest.tileID].map { Date() < $0 } ?? false)
         LiveActivityCenter.shared.update(
             LiveActivity(
                 id: id,
-                icon: done
-                    ? "bell.fill"
-                    : (soonest.phase == .work ? "leaf.fill" : "cup.and.saucer.fill"),
-                value: PomodoroWidget.text(soonest.left),
-                // Work and break are told apart by color before the icon is read:
-                // green while working, blue while resting
-                tint: soonest.phase == .work ? .green : .cyan,
+                icon: waiting == .work ? "leaf.fill" : "cup.and.saucer.fill",
+                // For a couple of seconds the capsule drops down and says what just
+                // happened — the same movement a track change or "Copied" uses
+                value: announcing
+                    ? (next == .rest
+                        ? String(localized: "Time for a break")
+                        : String(localized: "Back to work"))
+                    : PomodoroWidget.text(done ? soonest.nextLength : soonest.left),
+                tint: tint,
                 // A phase waiting to be picked up outranks one still running
                 priority: done
-                    ? LiveActivity.Priority.countdownDone : LiveActivity.Priority.countdown))
+                    ? LiveActivity.Priority.countdownDone : LiveActivity.Priority.countdown,
+                expanded: announcing))
     }
 
     /// What each tile shows and how much of it is left. Nothing is written back: the
@@ -87,6 +99,8 @@ enum PomodoroActivity {
         let left = state.duration - state.accumulated - Date().timeIntervalSince(startedAt)
         return Current(
             tileID: tileID, phase: state.phase, left: max(left, 0),
+            // What the phase waiting behind this one lasts — shown once this one ends
+            nextLength: state.duration(of: state.phase.other),
             // The moment this phase began — stable no matter who rewrites the state
             phaseStart: startedAt.addingTimeInterval(-state.accumulated))
     }
@@ -117,6 +131,8 @@ enum PomodoroActivity {
 
     /// Which phase end each tile has already rung for, by the phase's start moment
     private static var announced: [String: Date] = [:]
+    /// Until when the capsule stays expanded with the message it just announced
+    private static var expandedUntil: [String: Date] = [:]
 
     private static func notify(phase: PomodoroWidget.Phase) {
         let center = UNUserNotificationCenter.current()
@@ -139,6 +155,8 @@ enum PomodoroActivity {
         let tileID: String
         let phase: PomodoroWidget.Phase
         let left: TimeInterval
+        /// Length of the phase that comes next
+        let nextLength: TimeInterval
         /// When this phase began — the ring is announced by it
         let phaseStart: Date
     }

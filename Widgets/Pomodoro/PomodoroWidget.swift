@@ -131,6 +131,10 @@ final class PomodoroWidget: Widget {
     /// that has been "resting" for an hour tells you nothing
     var finished: Bool { isRunning && value <= 0 }
 
+    /// How long a phase runs — the tile needs the next one's length while the
+    /// current one waits to be picked up
+    func duration(of phase: Phase) -> TimeInterval { state.duration(of: phase) }
+
     var progress: Double {
         guard state.duration > 0 else { return 0 }
         return min(max(1 - value / state.duration, 0), 1)

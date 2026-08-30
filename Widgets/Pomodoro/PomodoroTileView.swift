@@ -10,10 +10,54 @@ struct PomodoroTileView: View {
 
     @Environment(\.theme) private var theme
 
+    /// What the tile is about right now. A phase that has run out is waiting to be
+    /// picked up, and what's waiting is the NEXT phase — so the tile already wears
+    /// it: its name, its color, its full length. A green tile with a zero on it says
+    /// "work", which is the opposite of what just happened
+    private var shown: PomodoroWidget.Phase {
+        widget.finished ? widget.phase.other : widget.phase
+    }
+
     /// Work and break are told apart by color before any label is read. From the
     /// theme, not hardcoded: this is a state, not a brand
     private var accent: Color {
-        widget.phase == .work ? theme.success.color : theme.accent.color
+        shown == .work ? theme.success.color : theme.accent.color
+    }
+
+    /// The number: what's left of the running phase, or the full length of the one
+    /// waiting to start — the same thing a stopped timer shows
+    private var value: TimeInterval {
+        widget.finished ? widget.duration(of: shown) : widget.value
+    }
+
+    private var progress: Double { widget.finished ? 0 : widget.progress }
+
+    /// The moment itself, said out loud. Only while a phase waits to be picked up
+    private var callout: String? {
+        guard widget.finished else { return nil }
+        return shown == .rest
+            ? String(localized: "Time for a break")
+            : String(localized: "Back to work")
+    }
+
+    /// The line that appears when a phase ends: it materializes rather than
+    /// replacing the caption on a frame — this is the one moment in the widget
+    /// worth noticing across the room
+    @ViewBuilder
+    private func calloutRow(_ text: String, icon: Bool = true) -> some View {
+        HStack(spacing: 5) {
+            // No icon inside the dial: there the ring is already the whole phase,
+            // and the pair together runs into it
+            if icon {
+                Image(systemName: shown == .rest ? "cup.and.saucer.fill" : "leaf.fill")
+                    .font(TileIcon.caption)
+            }
+            Text(text)
+                .font(TileFont.caption.weight(.medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(accent)
+        .transition(.scale(scale: 0.92).combined(with: .opacity))
     }
 
     var body: some View {
@@ -29,7 +73,7 @@ struct PomodoroTileView: View {
     private var largeBody: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                TileLabel(widget.phase.title)
+                TileLabel(shown.title)
                 Spacer(minLength: 0)
                 Text(doneText)
                     .font(TileFont.caption)
@@ -39,20 +83,24 @@ struct PomodoroTileView: View {
 
             ZStack {
                 TileDial(
-                    remaining: max(1 - widget.progress, 0.001),
-                    secondsShare: (60 - widget.value.truncatingRemainder(dividingBy: 60)) / 60,
+                    remaining: max(1 - progress, 0.001),
+                    secondsShare: (60 - value.truncatingRemainder(dividingBy: 60)) / 60,
                     tint: accent)
 
                 VStack(spacing: 3) {
-                    Text(PomodoroWidget.text(widget.value))
+                    Text(PomodoroWidget.text(value))
                         .font(TileFont.heroLarge)
                         .monospacedDigit()
                         .foregroundStyle(theme.textPrimary.color)
                         .contentTransition(.numericText())
-                    Text(subtitle)
-                        .font(TileFont.caption)
-                        .foregroundStyle(theme.textMuted.color)
-                        .lineLimit(1)
+                    if let callout {
+                        calloutRow(callout, icon: false)
+                    } else {
+                        Text(subtitle)
+                            .font(TileFont.caption)
+                            .foregroundStyle(theme.textMuted.color)
+                            .lineLimit(1)
+                    }
                 }
                 .padding(.horizontal, 30)
             }
@@ -83,6 +131,7 @@ struct PomodoroTileView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(TileMetrics.padding)
+        .animation(.easeOut(duration: Motion.fill), value: widget.finished)
     }
 
     // MARK: - Square and rectangle
@@ -90,7 +139,7 @@ struct PomodoroTileView: View {
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                TileLabel(widget.phase.title)
+                TileLabel(shown.title)
                 Spacer(minLength: 0)
                 if size != .small {
                     Text(doneText)
@@ -100,15 +149,20 @@ struct PomodoroTileView: View {
                 }
             }
 
-            Text(PomodoroWidget.text(widget.value))
+            Text(PomodoroWidget.text(value))
                 .font(TileFont.hero)
                 .monospacedDigit()
                 .foregroundStyle(theme.textPrimary.color)
                 .contentTransition(.numericText())
                 .padding(.top, TileMetrics.captionGap)
 
-            // The square shows one number and one action — everything else goes
-            if size != .small {
+            // The square shows one number and one action — everything else goes.
+            // The one exception is the moment a phase ends: that line is the whole
+            // point of the widget, and it belongs on every size
+            if let callout {
+                calloutRow(callout)
+                    .padding(.top, 2)
+            } else if size != .small {
                 Text(subtitle)
                     .font(TileFont.caption)
                     .foregroundStyle(theme.textMuted.color)
@@ -116,7 +170,7 @@ struct PomodoroTileView: View {
                     .padding(.top, 2)
             }
 
-            PomodoroProgress(progress: widget.progress, tint: accent)
+            PomodoroProgress(progress: progress, tint: accent)
                 .padding(.top, 7)
 
             Spacer(minLength: 8)
@@ -145,6 +199,8 @@ struct PomodoroTileView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(TileMetrics.padding)
+        // Color, number and the line arrive as one movement, not three
+        .animation(.easeOut(duration: Motion.fill), value: widget.finished)
     }
 
     private var doneText: String {
@@ -152,11 +208,6 @@ struct PomodoroTileView: View {
     }
 
     private var subtitle: String {
-        if widget.finished {
-            return widget.phase == .work
-                ? String(localized: "time for a break")
-                : String(localized: "break is over")
-        }
         guard let endsAt = widget.endsAt else {
             return widget.phase == .work
                 ? String(localized: "tap play to start")

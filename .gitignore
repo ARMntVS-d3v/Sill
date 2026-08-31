@@ -3,4 +3,4 @@ build/
 xcuserdata/
 *.xcuserstate
 DerivedData/
-Sill 2.xcodeproj/
+Sill [0-9]*.xcodeproj/

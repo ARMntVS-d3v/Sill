@@ -177,10 +177,15 @@ final class PomodoroWidget: Widget {
         begin(state.phase.other)
     }
 
-    /// Start this phase over from the top, and keep it going. A button that only
-    /// clears the number leaves you looking at a stopped timer
-    func restart() {
-        begin(state.phase)
+    /// Back to the top of the phase, stopped. The button clears — starting again is
+    /// what play is for. What gets cleared is what's on screen: once a phase has
+    /// rung, the tile is already showing the next one
+    func reset() {
+        if finished { state.phase = state.phase.other }
+        state.startedAt = nil
+        state.accumulated = 0
+        state.counted = false
+        persist()
     }
 
     /// Begin a phase from zero, running

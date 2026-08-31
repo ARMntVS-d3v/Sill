@@ -123,7 +123,7 @@ struct PomodoroTileView: View {
                 PomodoroButton(
                     icon: "arrow.counterclockwise", tint: accent, primary: false,
                     diameter: TileControlMetrics.secondary(.large)
-                ) { widget.restart() }
+                ) { widget.reset() }
                 Spacer(minLength: 0)
                 // The day's history: a filled circle per finished work stretch
                 SessionDots(done: widget.doneToday, tint: accent)
@@ -187,12 +187,12 @@ struct PomodoroTileView: View {
                     diameter: TileControlMetrics.secondary(size)
                 ) { widget.skip() }
 
-                // Restart is on every size: starting this stretch over is the
-                // second thing anyone wants after pausing
+                // Reset is on every size: clearing this stretch back to the top is
+                // the second thing anyone wants after pausing
                 PomodoroButton(
                     icon: "arrow.counterclockwise", tint: accent, primary: false,
                     diameter: TileControlMetrics.secondary(size)
-                ) { widget.restart() }
+                ) { widget.reset() }
 
                 Spacer(minLength: 0)
             }
